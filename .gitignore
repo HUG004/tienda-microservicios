@@ -1,0 +1,53 @@
+# Variables de entorno y credenciales
+.env
+.env.*
+!.env.example
+
+# Secretos de Kubernetes
+kubernetes/secrets/*
+!kubernetes/secrets/.gitkeep
+!kubernetes/secrets/*.example.yaml
+
+# PHP
+vendor/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# Node.js y Angular
+node_modules/
+dist/
+.angular/
+coverage/
+
+# Java y Maven
+target/
+*.class
+
+# Go
+*.exe
+*.test
+*.out
+
+# IDE y editores
+.vscode/
+.idea/
+
+# Archivos del sistema
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Bases de datos locales
+*.sqlite
+*.sqlite3
+*.db
+
+# Datos locales de Docker
+docker-data/
