@@ -1,0 +1,22 @@
+{
+    "name": "tienda/api-usuarios",
+    "description": "Microservicio de usuarios y autenticacion JWT",
+    "type": "project",
+    "require": {
+        "php": "^8.3",
+        "firebase/php-jwt": "^7.2",
+        "ext-pdo": "*",
+        "ext-pdo_pgsql": "*",
+        "ext-openssl": "*",
+        "ext-mbstring": "*"
+    },
+    
+    "autoload": {
+        "psr-4": {
+            "App\\": "src/"
+        }
+    },
+    "config": {
+        "sort-packages": true
+    }
+}
