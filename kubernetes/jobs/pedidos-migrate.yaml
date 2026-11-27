@@ -16,7 +16,7 @@ spec:
 
       containers:
         - name: migrate
-          image: tienda/api-pedidos:1.0.0
+          image: tienda/api-pedidos:1.0.1
           imagePullPolicy: IfNotPresent
 
           command:
