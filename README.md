@@ -1,42 +1,33 @@
-# Microservicios de Carrito, Envíos y Pagos (Integrante 3)
+# Tienda de Microservicios Multi-Stack
 
-Este módulo contiene la implementación de los microservicios de **Carrito**, **Envíos** y **Pagos** para la plataforma de comercio electrónico. Cada servicio está desarrollado en un lenguaje distinto, cuenta con su propia base de datos y está dockerizado para su fácil despliegue.
+## Descripción
 
-## 🛠️ Tecnologías Utilizadas
-*   **API de Carrito**: Node.js + Express + PostgreSQL
-*   **API de Envíos**: Python + FastAPI + PostgreSQL
-*   **API de Pagos**: Java 21 + Spring Boot + PostgreSQL
-*   **Infraestructura**: Docker y Docker Compose
+Plataforma de comercio electrónico desarrollada mediante
+una arquitectura de microservicios independientes.
 
-## 🚀 Requisitos Previos
-*   Tener instalado Docker y Docker Compose.
-*   Contar con el archivo `.env` configurado en la raíz del proyecto (basado en `.env.example`).
-*   Tener generadas las claves RSA (`secrets/jwt_public.pem` y `secrets/jwt_private.pem`) para la validación de tokens JWT.
+## Tecnologías
 
-## 📦 Cómo levantar los servicios
+- PHP
+- Python y FastAPI
+- Go y Gin
+- Node.js y Express
+- Java y Spring Boot
+- Angular
+- PostgreSQL
+- MongoDB
+- Docker
+- Docker Compose
+- Kubernetes
+- kubectl
 
-Para construir y levantar únicamente los servicios de este módulo (junto con las bases de datos), ejecuta el siguiente comando en la raíz del proyecto:
+## Arquitectura
 
-```bash
-# Levantar las bases de datos primero
-docker compose up -d postgres mongodb
+El sistema está compuesto por ocho microservicios REST,
+una aplicación frontend y bases de datos independientes
+por dominio lógico.
 
-# Construir y levantar las APIs del Integrante 3
-docker compose up -d --build api-carrito api-envios api-pagos
-```
+## Objetivo
 
-Puedes verificar que todo esté corriendo correctamente con:
-
-```bash
-docker compose ps
-```
-
-## 🩺 Health Checks (Obligatorios)
-
-Todos los servicios implementan los endpoints de salud requeridos por el contrato:
-
-*   **Carrito**: GET http://localhost:8005/health y GET http://localhost:8005/ready
-
-
-```bash
-```
+Implementar una aplicación distribuida multi-stack,
+demostrando la comunicación entre microservicios,
+contenerización, orquestación y escalabilidad.
