@@ -11,10 +11,13 @@ import {
 } from '../../core/models/api.models';
 
 interface CheckoutPendiente {
+  usuarioId: number;
   pedidoId: number;
   idempotencyKey: string;
   payload: CheckoutRequest;
 }
+
+const STORAGE_KEY_CHECKOUT = 'techstore_checkout_pendiente';
 
 @Component({
   selector: 'app-carrito',
@@ -108,9 +111,9 @@ interface CheckoutPendiente {
 
             @if (checkoutPendiente()) {
               <div class="p-3 rounded-lg bg-amber-50 border border-amber-300 text-amber-900 text-xs space-y-1">
-                <p class="font-bold">Servicio temporalmente no disponible (HTTP 503)</p>
+                <p class="font-bold">Operación de compra pendiente de confirmación</p>
                 <p>
-                  Tu <strong>Pedido #{{ checkoutPendiente()?.pedidoId }}</strong> ya fue reservado.
+                  Tu <strong>Pedido #{{ checkoutPendiente()?.pedidoId }}</strong> está guardado en esta sesión.
                   Conservamos tu clave de idempotencia y solicitud original para reintentar sin duplicar la compra.
                 </p>
               </div>
@@ -235,7 +238,7 @@ interface CheckoutPendiente {
               >
                 {{
                   procesandoCompra()
-                    ? 'Reintentando pago...'
+                    ? 'Confirmando operación...'
                     : 'Reintentar pago (Pedido #' + checkoutPendiente()?.pedidoId + ')'
                 }}
               </button>
@@ -275,7 +278,54 @@ export class CarritoComponent implements OnInit {
   simulacion: 'aprobar' | 'rechazar' = 'aprobar';
 
   ngOnInit(): void {
+    this.recuperarCheckoutPendiente();
     this.cargarCarrito();
+  }
+
+  private recuperarCheckoutPendiente(): void {
+    const user = this.auth.usuario();
+    if (!user) return;
+
+    try {
+      const raw = sessionStorage.getItem(STORAGE_KEY_CHECKOUT);
+      if (!raw) return;
+
+      const guardado = JSON.parse(raw) as CheckoutPendiente;
+      if (
+        guardado &&
+        guardado.usuarioId === user.id &&
+        guardado.pedidoId &&
+        guardado.idempotencyKey &&
+        guardado.payload
+      ) {
+        this.checkoutPendiente.set(guardado);
+        this.metodoPago = guardado.payload.metodo_pago;
+        this.simulacion = guardado.payload.simulacion;
+      } else if (guardado.usuarioId !== user.id) {
+        sessionStorage.removeItem(STORAGE_KEY_CHECKOUT);
+      }
+    } catch {
+      sessionStorage.removeItem(STORAGE_KEY_CHECKOUT);
+    }
+  }
+
+  private guardarCheckoutPendiente(operacion: CheckoutPendiente): void {
+    const datosSeguros: CheckoutPendiente = {
+      usuarioId: operacion.usuarioId,
+      pedidoId: operacion.pedidoId,
+      idempotencyKey: operacion.idempotencyKey,
+      payload: {
+        metodo_pago: operacion.payload.metodo_pago,
+        simulacion: operacion.payload.simulacion,
+      },
+    };
+    sessionStorage.setItem(STORAGE_KEY_CHECKOUT, JSON.stringify(datosSeguros));
+    this.checkoutPendiente.set(datosSeguros);
+  }
+
+  private limpiarCheckoutPendiente(): void {
+    sessionStorage.removeItem(STORAGE_KEY_CHECKOUT);
+    this.checkoutPendiente.set(null);
   }
 
   cargarCarrito(): void {
@@ -296,7 +346,7 @@ export class CarritoComponent implements OnInit {
 
   cambiarCantidad(productoId: number, nuevaCantidad: number): void {
     const user = this.auth.usuario();
-    if (!user || nuevaCantidad < 1) return;
+    if (!user || nuevaCantidad < 1 || this.checkoutPendiente()) return;
 
     this.tienda.actualizarCantidadCarrito(user.id, productoId, nuevaCantidad).subscribe({
       next: (res) => this.carrito.set(res.datos),
@@ -306,7 +356,7 @@ export class CarritoComponent implements OnInit {
 
   eliminarItem(productoId: number): void {
     const user = this.auth.usuario();
-    if (!user) return;
+    if (!user || this.checkoutPendiente()) return;
 
     this.tienda.eliminarDelCarrito(user.id, productoId).subscribe({
       next: (res) => this.carrito.set(res.datos),
@@ -316,7 +366,7 @@ export class CarritoComponent implements OnInit {
 
   vaciarCarrito(): void {
     const user = this.auth.usuario();
-    if (!user) return;
+    if (!user || this.checkoutPendiente()) return;
 
     this.tienda.vaciarCarrito(user.id).subscribe({
       next: (res) => this.carrito.set(res.datos),
@@ -352,7 +402,6 @@ export class CarritoComponent implements OnInit {
   }
 
   confirmarCompra(): void {
-    // Si ya existe un pedido pendiente por error 503, reintentar directamente con los mismos datos
     if (this.checkoutPendiente()) {
       this.reintentarCheckout();
       return;
@@ -380,6 +429,7 @@ export class CarritoComponent implements OnInit {
       .subscribe({
         next: (pedidoRes) => {
           const operacion: CheckoutPendiente = {
+            usuarioId: user.id,
             pedidoId: pedidoRes.datos.id,
             idempotencyKey: crypto.randomUUID(),
             payload: {
@@ -388,6 +438,8 @@ export class CarritoComponent implements OnInit {
             },
           };
 
+          // Persistir ANTES de enviar el checkout para sobrevivir a recargas o caídas de red
+          this.guardarCheckoutPendiente(operacion);
           this.ejecutarCheckoutSaga(operacion);
         },
         error: (err) => {
@@ -411,22 +463,27 @@ export class CarritoComponent implements OnInit {
       .procesarCheckout(operacion.pedidoId, operacion.payload, operacion.idempotencyKey)
       .subscribe({
         next: (checkoutRes) => {
+          // Resultado definitivo obtenido: eliminar datos temporales
           this.procesandoCompra.set(false);
-          this.checkoutPendiente.set(null);
+          this.limpiarCheckoutPendiente();
           this.resultadoCheckout.set(checkoutRes.datos);
           this.cargarCarrito();
         },
         error: (err) => {
           this.procesandoCompra.set(false);
-          if (err.status === 503) {
-            // Conserva pedidoId, idempotencyKey y payload original para recuperación idempotente
-            this.checkoutPendiente.set(operacion);
+          const esFalloTransitorio =
+            err.status === 0 || err.status === 502 || err.status === 503 || err.status === 504;
+
+          if (esFalloTransitorio) {
+            // Conservar en sessionStorage ante errores de red o HTTP 502, 503, 504
+            this.guardarCheckoutPendiente(operacion);
             this.errorMsg.set(
               err.error?.error?.mensaje ||
-                `Servicio no disponible (503). Presiona reintentar para completar el pedido #${operacion.pedidoId}.`
+                `No se recibió confirmación definitiva (HTTP ${err.status || 'Red'}). Reintenta el pedido #${operacion.pedidoId} sin generar otra compra.`
             );
           } else {
-            this.checkoutPendiente.set(null);
+            // Error definitivo del negocio (ej. 400, 402, 409): limpiar operación pendiente
+            this.limpiarCheckoutPendiente();
             this.errorMsg.set(err.error?.error?.mensaje || 'Error al procesar el pago del pedido');
           }
         },
