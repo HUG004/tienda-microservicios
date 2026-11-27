@@ -99,4 +99,26 @@ def generar(req: GenerarReq, internal: None = Depends(verify_internal)):
         cur.close()
         conn.close()
 
-# GET Rastreo... (puedes agregarlo siguiendo la misma lógica)
+@app.get("/api/envios/rastreo/{guia}")
+def rastrear(guia: str):
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT pedido_id, guia, estado, dias_estimados, actualizado_en FROM envios WHERE guia = %s", (guia,))
+        envio = cur.fetchone()
+        if not envio:
+            raise HTTPException(status_code=404, detail={"error": {"codigo": "GUIA_NO_ENCONTRADA", "mensaje": "Guia no encontrada"}})
+        
+        return {
+            "mensaje": "Envio encontrado",
+            "datos": {
+                "pedido_id": envio[0],
+                "guia": envio[1],
+                "estado": envio[2],
+                "dias_estimados": envio[3],
+                "actualizado_en": envio[4].isoformat() if envio[4] else None
+            }
+        }
+    finally:
+        cur.close()
+        conn.close()

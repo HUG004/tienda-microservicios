@@ -136,4 +136,67 @@ app.post('/api/carrito/:usuario_id/agregar', auth, async (req, res) => {
 
 // Puedes agregar los endpoints faltantes (vaciar, PATCH, DELETE) siguiendo esta misma lógica.
 
+// PATCH - Actualizar cantidad
+app.patch('/api/carrito/:usuario_id/productos/:producto_id', auth, async (req, res) => {
+    const { usuario_id, producto_id } = req.params;
+    const { cantidad } = req.body;
+
+    if (req.usuario && req.usuario.sub !== usuario_id) {
+        return res.status(403).json({ error: { codigo: "ACCESO_DENEGADO", mensaje: "No autorizado" } });
+    }
+    if (cantidad <= 0) {
+        return res.status(400).json({ error: { codigo: "DATOS_INVALIDOS", mensaje: "Cantidad debe ser mayor a 0" } });
+    }
+
+    try {
+        const carrito = await pool.query('SELECT id FROM carritos WHERE usuario_id = $1', [usuario_id]);
+        if (carrito.rows.length === 0) return res.status(404).json({ error: { codigo: "CARRITO_NO_ENCONTRADO", mensaje: "Carrito no encontrado" } });
+
+        const carritoId = carrito.rows[0].id;
+        const update = await pool.query(
+            'UPDATE carrito_detalles SET cantidad = $1 WHERE carrito_id = $2 AND producto_id = $3 RETURNING *',
+            [cantidad, carritoId, producto_id]
+        );
+
+        if (update.rows.length === 0) return res.status(404).json({ error: { codigo: "PRODUCTO_NO_EN_CARRITO", mensaje: "Producto no encontrado" } });
+
+        // Para no hacer la respuesta tan compleja, solo devolvemos un OK.
+        res.json({ mensaje: "Cantidad actualizada correctamente", datos: { usuario_id: Number(usuario_id), producto_id: Number(producto_id), cantidad } });
+    } catch (error) {
+        res.status(500).json({ error: { codigo: "ERROR_INTERNO", mensaje: error.message } });
+    }
+});
+
+// DELETE - Eliminar un producto
+app.delete('/api/carrito/:usuario_id/productos/:producto_id', auth, async (req, res) => {
+    const { usuario_id, producto_id } = req.params;
+    if (req.usuario && req.usuario.sub !== usuario_id) return res.status(403).json({ error: { codigo: "ACCESO_DENEGADO", mensaje: "No autorizado" } });
+
+    try {
+        const carrito = await pool.query('SELECT id FROM carritos WHERE usuario_id = $1', [usuario_id]);
+        if (carrito.rows.length > 0) {
+            await pool.query('DELETE FROM carrito_detalles WHERE carrito_id = $1 AND producto_id = $2', [carrito.rows[0].id, producto_id]);
+        }
+        res.json({ mensaje: "Producto eliminado del carrito", datos: { usuario_id: Number(usuario_id) } });
+    } catch (error) {
+        res.status(500).json({ error: { codigo: "ERROR_INTERNO", mensaje: error.message } });
+    }
+});
+
+// DELETE - Vaciar carrito
+app.delete('/api/carrito/:usuario_id/vaciar', auth, async (req, res) => {
+    const { usuario_id } = req.params;
+    if (req.usuario && req.usuario.sub !== usuario_id) return res.status(403).json({ error: { codigo: "ACCESO_DENEGADO", mensaje: "No autorizado" } });
+
+    try {
+        const carrito = await pool.query('SELECT id FROM carritos WHERE usuario_id = $1', [usuario_id]);
+        if (carrito.rows.length > 0) {
+            await pool.query('DELETE FROM carrito_detalles WHERE carrito_id = $1', [carrito.rows[0].id]);
+        }
+        res.json({ mensaje: "Carrito vaciado correctamente", datos: { usuario_id: Number(usuario_id) } });
+    } catch (error) {
+        res.status(500).json({ error: { codigo: "ERROR_INTERNO", mensaje: error.message } });
+    }
+});
+
 app.listen(8005, '0.0.0.0', () => console.log('Carrito API en puerto 8005'));
