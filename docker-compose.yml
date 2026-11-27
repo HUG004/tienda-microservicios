@@ -49,6 +49,63 @@ services:
       retries: 5
       start_period: 15s
 
+  api-pedidos:
+    build:
+      context: ./api-pedidos
+      dockerfile: Dockerfile
+
+    image: tienda/api-pedidos:1.0.0
+
+    container_name: tienda-api-pedidos
+
+    restart: unless-stopped
+
+    ports:
+      - "127.0.0.1:8006:8006"
+
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${PEDIDOS_DB_NAME}
+      DB_USER: ${PEDIDOS_DB_USER}
+      DB_PASSWORD: ${PEDIDOS_DB_PASSWORD}
+
+      JWT_ISSUER: ${JWT_ISSUER}
+      JWT_AUDIENCE: ${JWT_AUDIENCE}
+      JWT_PUBLIC_KEY_PATH: /run/secrets/jwt_public.pem
+
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN}
+
+      USUARIOS_API_URL: ${USUARIOS_API_URL}
+      PRODUCTOS_API_URL: ${PRODUCTOS_API_URL}
+      ENVIOS_API_URL: ${ENVIOS_API_URL}
+      INVENTARIO_API_URL: ${INVENTARIO_API_URL}
+      CARRITO_API_URL: ${CARRITO_API_URL}
+      PAGOS_API_URL: ${PAGOS_API_URL}
+
+      PHP_CLI_SERVER_WORKERS: 4
+
+    volumes:
+      - ./secrets/jwt_public.pem:/run/secrets/jwt_public.pem:ro
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    networks:
+      - red-tienda
+
+    healthcheck:
+      test:
+        - CMD
+        - php
+        - -r
+        - "exit(@file_get_contents('http://127.0.0.1:8006/ready') === false ? 1 : 0);"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+  
   postgres:
     image: postgres:16
     container_name: tienda-postgres
