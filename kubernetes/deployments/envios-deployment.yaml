@@ -1,0 +1,132 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-envios
+  namespace: tienda
+  labels:
+    app: api-envios
+
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+
+  selector:
+    matchLabels:
+      app: api-envios
+
+  template:
+    metadata:
+      labels:
+        app: api-envios
+
+    spec:
+      automountServiceAccountToken: false
+
+      containers:
+        - name: api-envios
+          image: tienda/api-envios:1.0.0
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: http
+              containerPort: 8003
+
+          env:
+            - name: APP_ENV
+              valueFrom:
+                configMapKeyRef:
+                  name: tienda-app-config
+                  key: APP_ENV
+            - name: JWT_ISSUER
+              valueFrom:
+                configMapKeyRef:
+                  name: tienda-app-config
+                  key: JWT_ISSUER
+            - name: JWT_AUDIENCE
+              valueFrom:
+                configMapKeyRef:
+                  name: tienda-app-config
+                  key: JWT_AUDIENCE
+            - name: JWT_PUBLIC_KEY_PATH
+              valueFrom:
+                configMapKeyRef:
+                  name: tienda-app-config
+                  key: JWT_PUBLIC_KEY_PATH
+            - name: PEDIDOS_API_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: tienda-app-config
+                  key: PEDIDOS_API_URL
+            - name: INTERNAL_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: internal-api-secret
+                  key: INTERNAL_API_TOKEN
+            - name: DB_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: tienda-database-config
+                  key: DB_HOST
+            - name: DB_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: tienda-database-config
+                  key: DB_PORT
+            - name: ENVIOS_DB_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: tienda-database-config
+                  key: ENVIOS_DB_NAME
+            - name: ENVIOS_DB_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: tienda-database-config
+                  key: ENVIOS_DB_USER
+            - name: ENVIOS_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: envios-db-secret
+                  key: DB_PASSWORD
+
+          volumeMounts:
+            - name: jwt-public
+              mountPath: /run/secrets
+              readOnly: true
+
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+      volumes:
+        - name: jwt-public
+          secret:
+            secretName: jwt-public-secret
+            defaultMode: 0444
