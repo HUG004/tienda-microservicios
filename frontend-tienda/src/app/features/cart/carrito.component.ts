@@ -463,7 +463,7 @@ export class CarritoComponent implements OnInit {
       .procesarCheckout(operacion.pedidoId, operacion.payload, operacion.idempotencyKey)
       .subscribe({
         next: (checkoutRes) => {
-          // Resultado definitivo obtenido: eliminar datos temporales
+          // Resultado definitivo exitoso: eliminar datos temporales
           this.procesandoCompra.set(false);
           this.limpiarCheckoutPendiente();
           this.resultadoCheckout.set(checkoutRes.datos);
@@ -471,20 +471,22 @@ export class CarritoComponent implements OnInit {
         },
         error: (err) => {
           this.procesandoCompra.set(false);
-          const esFalloTransitorio =
-            err.status === 0 || err.status === 502 || err.status === 503 || err.status === 504;
 
-          if (esFalloTransitorio) {
-            // Conservar en sessionStorage ante errores de red o HTTP 502, 503, 504
+          // Errores definitivos de negocio (rechazo de pago, stock inválido o pedido ya cerrado)
+          const erroresDefinitivos = [400, 402, 404, 409, 422];
+          const esRechazoDefinitivo = erroresDefinitivos.includes(err.status);
+
+          if (esRechazoDefinitivo) {
+            this.limpiarCheckoutPendiente();
+            this.errorMsg.set(err.error?.error?.mensaje || 'La operación fue rechazada de forma definitiva');
+          } else {
+            // Ante error de red (0), timeout, 500, 502, 503, 504 o estado desconocido:
+            // conservar operación pendiente y la misma Idempotency-Key en sessionStorage
             this.guardarCheckoutPendiente(operacion);
             this.errorMsg.set(
               err.error?.error?.mensaje ||
-                `No se recibió confirmación definitiva (HTTP ${err.status || 'Red'}). Reintenta el pedido #${operacion.pedidoId} sin generar otra compra.`
+                `No se pudo confirmar el resultado del pago (HTTP ${err.status || 'Conexión'}). Conservamos el pedido #${operacion.pedidoId} y tu clave de idempotencia para reintentar.`
             );
-          } else {
-            // Error definitivo del negocio (ej. 400, 402, 409): limpiar operación pendiente
-            this.limpiarCheckoutPendiente();
-            this.errorMsg.set(err.error?.error?.mensaje || 'Error al procesar el pago del pedido');
           }
         },
       });
