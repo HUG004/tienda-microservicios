@@ -1,42 +1,37 @@
-# Microservicios de Carrito, Envíos y Pagos (Integrante 3)
+# API de Carrito (Juan Antonio)
 
-Este módulo contiene la implementación de los microservicios de **Carrito**, **Envíos** y **Pagos** para la plataforma de comercio electrónico. Cada servicio está desarrollado en un lenguaje distinto, cuenta con su propia base de datos y está dockerizado para su fácil despliegue.
+Microservicio encargado de la gestión del carrito de compras de los usuarios. Desarrollado en Node.js con Express y conectado a PostgreSQL.
 
-## 🛠️ Tecnologías Utilizadas
-*   **API de Carrito**: Node.js + Express + PostgreSQL
-*   **API de Envíos**: Python + FastAPI + PostgreSQL
-*   **API de Pagos**: Java 21 + Spring Boot + PostgreSQL
-*   **Infraestructura**: Docker y Docker Compose
+## 🛠️ Tecnologías
+*   **Lenguaje:** Node.js
+*   **Framework:** Express
+*   **Base de Datos:** PostgreSQL (Base de datos: `carrito_db`)
 
-## 🚀 Requisitos Previos
-*   Tener instalado Docker y Docker Compose.
-*   Contar con el archivo `.env` configurado en la raíz del proyecto (basado en `.env.example`).
-*   Tener generadas las claves RSA (`secrets/jwt_public.pem` y `secrets/jwt_private.pem`) para la validación de tokens JWT.
+## ⚙️ Variables de Entorno Requeridas
+El servicio requiere las siguientes variables (definidas en el `docker-compose.yml`):
+*   `CARRITO_DB_NAME`, `CARRITO_DB_USER`, `CARRITO_DB_PASSWORD`
+*   `INTERNAL_API_TOKEN`: Token para comunicación entre microservicios.
+*   `PRODUCTOS_API_URL`: URL de la API de Productos (ej. `http://api-productos:8002`).
+*   `INVENTARIO_API_URL`: URL de la API de Inventario (ej. `http://api-inventario:8004`).
 
-## 📦 Cómo levantar los servicios
-
-Para construir y levantar únicamente los servicios de este módulo (junto con las bases de datos), ejecuta el siguiente comando en la raíz del proyecto:
-
+## 🚀 Cómo ejecutar
+Para levantar este servicio de forma individual (junto con su base de datos):
 ```bash
-# Levantar las bases de datos primero
-docker compose up -d postgres mongodb
-
-# Construir y levantar las APIs del Integrante 3
-docker compose up -d --build api-carrito api-envios api-pagos
+docker compose up -d --build api-carrito
 ```
 
-Puedes verificar que todo esté corriendo correctamente con:
+## 🛣️ Endpoints
+### Health Checks
+*   `GET /health`: Verifica que el proceso esté vivo.
+*   `GET /ready`: Verifica la conexión a la base de datos.
 
-```bash
-docker compose ps
-```
+### Carrito
+*   `GET /api/carrito/{usuario_id}`: Obtiene el carrito completo (consulta precios e info a la API de Productos vía HTTP).
+*   `POST /api/carrito/{usuario_id}/agregar`: Agrega un producto. Valida stock consultando a la API de Inventario.
+*   `PATCH /api/carrito/{usuario_id}/productos/{producto_id}`: Actualiza la cantidad de un producto específico.
+*   `DELETE /api/carrito/{usuario_id}/productos/{producto_id}`: Elimina un producto del carrito.
+*   `DELETE /api/carrito/{usuario_id}/vaciar`: Elimina todos los productos del carrito.
 
-## 🩺 Health Checks (Obligatorios)
-
-Todos los servicios implementan los endpoints de salud requeridos por el contrato:
-
-*   **Carrito**: GET http://localhost:8005/health y GET http://localhost:8005/ready
-
-
-```bash
-```
+## 🔒 Seguridad
+*   Requiere JWT válido (RS256) en el header Authorization para rutas de cliente.
+*   Permite acceso interno mediante el header X-Internal-Token.
