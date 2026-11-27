@@ -1,3 +1,5 @@
+\c envios_db;
+
 CREATE TABLE IF NOT EXISTS envios (
     id BIGSERIAL PRIMARY KEY,
     pedido_id BIGINT UNIQUE NOT NULL,
@@ -11,3 +13,7 @@ CREATE TABLE IF NOT EXISTS envios (
     creado_en TIMESTAMPTZ DEFAULT NOW(),
     actualizado_en TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Otorgar permisos al usuario de la aplicación
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO envios_app;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO envios_app;

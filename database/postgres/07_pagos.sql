@@ -1,3 +1,5 @@
+\c pagos_db;
+
 CREATE TABLE IF NOT EXISTS pagos (
     id BIGSERIAL PRIMARY KEY,
     pedido_id BIGINT NOT NULL,
@@ -10,5 +12,8 @@ CREATE TABLE IF NOT EXISTS pagos (
     creado_en TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Índice parcial para evitar dos pagos aprobados para el mismo pedido
-CREATE UNIQUE INDEX idx_un_pago_aprobado ON pagos (pedido_id) WHERE estado = 'aprobado';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_un_pago_aprobado ON pagos (pedido_id) WHERE estado = 'aprobado';
+
+-- Otorgar permisos al usuario de la aplicación
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO pagos_app;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO pagos_app;

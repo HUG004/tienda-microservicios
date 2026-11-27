@@ -1,3 +1,5 @@
+\c carrito_db;
+
 CREATE TABLE IF NOT EXISTS carritos (
     id BIGSERIAL PRIMARY KEY,
     usuario_id BIGINT UNIQUE NOT NULL,
@@ -12,3 +14,7 @@ CREATE TABLE IF NOT EXISTS carrito_detalles (
     cantidad INTEGER NOT NULL CHECK (cantidad > 0),
     UNIQUE(carrito_id, producto_id)
 );
+
+-- Otorgar permisos al usuario de la aplicación
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO carrito_app;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO carrito_app;

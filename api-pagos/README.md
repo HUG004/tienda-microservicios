@@ -30,3 +30,12 @@ docker compose up -d --build api-pagos
 ## 🔒 Seguridad e idempotencia
 *   Valida JWT (RS256) para el endpoint de actualización de estado (requiere rol admin).
 *   Las rutas internas (como generar guía) requieren el header X-Internal-Token.
+
+## 🗄️ Inicialización de Tablas
+Las tablas de este microservicio se crean automáticamente al levantar Docker por primera vez, gracias a los scripts SQL montados en el volumen de PostgreSQL (`/database/postgres`).
+Para reiniciar las tablas desde cero, ejecuta:
+```bash
+docker compose down -v
+docker compose up -d postgres
+```
+Los scripts SQL están diseñados con CREATE TABLE IF NOT EXISTS para ser repetibles.

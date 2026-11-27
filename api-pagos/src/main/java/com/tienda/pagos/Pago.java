@@ -7,20 +7,23 @@ import java.time.OffsetDateTime;
 @Entity
 @Table(name = "pagos")
 public class Pago {
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
-    
     private Long pedidoId;
     private BigDecimal monto;
     private String metodoPago;
     private String estado;
+    
+    @Column(unique = true)
     private String referencia;
+    
+    @Column(unique = true)
     private String claveIdempotencia;
+    
     private String solicitudHash;
     private OffsetDateTime creadoEn = OffsetDateTime.now();
 
-    // Getters y Setters (puedes generarlos con Alt+Insert o clic derecho en VS Code)
+    // Getters y Setters
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
     public Long getPedidoId() { return pedidoId; }

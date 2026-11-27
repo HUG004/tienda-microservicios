@@ -4,13 +4,19 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.http.*;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import javax.sql.DataSource;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
+import java.security.*;
+import java.security.spec.X509EncodedKeySpec;
 import java.sql.Connection;
-import java.util.Map;
-import java.util.Optional;
+import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 
 @RestController
 public class PagoController {
@@ -20,7 +26,45 @@ public class PagoController {
     @Autowired
     private DataSource dataSource;
 
-    private final RestTemplate restTemplate = new RestTemplate();
+    private final RestTemplate restTemplate;
+
+    public PagoController() {
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(5000); factory.setReadTimeout(5000);
+        this.restTemplate = new RestTemplate(factory);
+    }
+
+    // Validar JWT RS256 sin librerías externas
+    private void verifyJwtRs256(String token) throws Exception {
+        String[] parts = token.split("\\.");
+        if (parts.length != 3) throw new Exception("Formato invalido");
+        
+        String publicKeyPem = new String(Files.readAllBytes(Paths.get("/run/secrets/jwt_public.pem")))
+                .replace("-----BEGIN PUBLIC KEY-----", "").replace("-----END PUBLIC KEY-----", "").replaceAll("\\s+", "");
+        
+        byte[] publicKeyBytes = Base64.getDecoder().decode(publicKeyPem);
+        PublicKey publicKey = KeyFactory.getInstance("RSA").generatePublic(new X509EncodedKeySpec(publicKeyBytes));
+
+        Signature sig = Signature.getInstance("SHA256withRSA");
+        sig.initVerify(publicKey);
+        sig.update((parts[0] + "." + parts[1]).getBytes(StandardCharsets.UTF_8));
+        
+        if (!sig.verify(Base64.getUrlDecoder().decode(parts[2]))) throw new Exception("Firma invalida");
+
+        // Validar payload usando regex (sin Jackson)
+        String payloadJson = new String(Base64.getUrlDecoder().decode(parts[1]), StandardCharsets.UTF_8);
+        
+        if (!payloadJson.contains("\"iss\":\"api-usuarios\"")) throw new Exception("Issuer invalido");
+        if (!payloadJson.contains("\"aud\":\"tienda-microservicios\"")) throw new Exception("Audience invalido");
+        
+        Matcher matcher = Pattern.compile("\"exp\":(\\d+)").matcher(payloadJson);
+        if (matcher.find()) {
+            long exp = Long.parseLong(matcher.group(1));
+            if (System.currentTimeMillis() / 1000 > exp) throw new Exception("Token expirado");
+        } else {
+            throw new Exception("Token sin expiracion");
+        }
+    }
 
     @GetMapping("/health")
     public ResponseEntity<?> health() { return ResponseEntity.ok(Map.of("status", "ok", "servicio", "api-pagos")); }
@@ -28,6 +72,7 @@ public class PagoController {
     @GetMapping("/ready")
     public ResponseEntity<?> ready() {
         try (Connection conn = dataSource.getConnection()) {
+            conn.createStatement().execute("SELECT 1 FROM pagos LIMIT 1");
             return ResponseEntity.ok(Map.of("status", "ready", "servicio", "api-pagos"));
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of("status", "not_ready", "servicio", "api-pagos"));
@@ -41,79 +86,70 @@ public class PagoController {
             @RequestBody Map<String, Object> request) {
         
         String expectedToken = System.getenv("INTERNAL_API_TOKEN");
-        if (internalToken == null || !internalToken.equals(expectedToken)) {
+        if (expectedToken == null || internalToken == null || !internalToken.equals(expectedToken)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", Map.of("codigo", "ACCESO_DENEGADO", "mensaje", "Token interno requerido")));
         }
-        if (idempotencyKey == null) {
-            return ResponseEntity.badRequest().body(Map.of("error", Map.of("codigo", "DATOS_INVALIDOS", "mensaje", "Falta Idempotency-Key")));
-        }
+        if (idempotencyKey == null) return ResponseEntity.badRequest().body(Map.of("error", Map.of("codigo", "DATOS_INVALIDOS", "mensaje", "Falta Idempotency-Key")));
 
-        Long pedidoId = Long.parseLong(request.get("pedido_id").toString());
-        // AQUÍ ESTÁ LA CORRECCIÓN: La variable ahora está fuera del try para que todo el método la vea
-        String montoRecibido = request.get("monto").toString(); 
-
-        // 1. Consultar Pedidos para validar monto
+        // Validaciones de entrada
+        Long pedidoId; String montoRecibido, metodoPago, simulacion;
         try {
-            String pedidosUrl = System.getenv("PEDIDOS_API_URL") + "/api/pedidos/" + pedidoId;
-            HttpHeaders headers = new HttpHeaders();
-            headers.set("X-Internal-Token", expectedToken);
-            HttpEntity<String> entity = new HttpEntity<>(headers);
-            ResponseEntity<Map> pedidoResponse = restTemplate.exchange(pedidosUrl, HttpMethod.GET, entity, Map.class);
-            
-            Map<String, Object> pedidoData = (Map<String, Object>) pedidoResponse.getBody().get("datos");
-            String montoOficial = pedidoData.get("total").toString();
-            
-            if (!montoOficial.equals(montoRecibido)) {
-                return ResponseEntity.badRequest().body(Map.of("error", Map.of("codigo", "MONTO_INVALIDO", "mensaje", "El monto no coincide con el pedido")));
-            }
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of("error", Map.of("codigo", "SERVICIO_NO_DISPONIBLE", "mensaje", "Error al conectar con Pedidos: " + e.getMessage())));
-        }
+            pedidoId = Long.parseLong(request.get("pedido_id").toString());
+            montoRecibido = request.get("monto").toString();
+            metodoPago = request.get("metodo_pago").toString();
+            simulacion = request.getOrDefault("simulacion", "aprobar").toString();
+            if (!metodoPago.equals("tarjeta_simulada") && !metodoPago.equals("transferencia_simulada")) throw new Exception("Metodo invalido");
+            if (!simulacion.equals("aprobar") && !simulacion.equals("rechazar")) throw new Exception("Simulacion invalida");
+        } catch (Exception e) { return ResponseEntity.badRequest().body(Map.of("error", Map.of("codigo", "DATOS_INVALIDOS", "mensaje", "Campos invalidos"))); }
 
-        // 2. Generar SHA-256 de la solicitud
-        String solicitudString = request.toString();
+        // Hash normalizado
+        String normalizedRequest = request.entrySet().stream().sorted(Map.Entry.comparingByKey()).map(e -> e.getKey() + "=" + e.getValue()).collect(Collectors.joining("&"));
         String solicitudHash;
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(solicitudString.getBytes(StandardCharsets.UTF_8));
+            byte[] hash = digest.digest(normalizedRequest.getBytes(StandardCharsets.UTF_8));
             StringBuilder hexString = new StringBuilder();
             for (byte b : hash) { String hex = Integer.toHexString(0xff & b); if (hex.length() == 1) hexString.append('0'); hexString.append(hex); }
             solicitudHash = hexString.toString();
         } catch (Exception e) { return ResponseEntity.internalServerError().build(); }
 
-        // 3. Idempotencia Real
+        // Validar idempotencia ANTES de llamar a Pedidos
         Optional<Pago> pagoExistente = pagoRepository.findByClaveIdempotencia(idempotencyKey);
         if (pagoExistente.isPresent()) {
             Pago p = pagoExistente.get();
-            if (!p.getSolicitudHash().equals(solicitudHash)) {
-                return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", Map.of("codigo", "IDEMPOTENCIA_CONFLICTIVA", "mensaje", "La clave se usó con otros datos")));
-            }
-            return ResponseEntity.ok(Map.of(
-                "mensaje", p.getEstado().equals("aprobado") ? "Pago procesado" : "Pago rechazado",
-                "datos", Map.of("id", p.getId(), "pedido_id", p.getPedidoId(), "monto", p.getMonto().toString(), "moneda", "MXN", "metodo_pago", p.getMetodoPago(), "estado", p.getEstado(), "referencia", p.getReferencia(), "creado_en", p.getCreadoEn().toString())
-            ));
+            if (!p.getSolicitudHash().equals(solicitudHash)) return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", Map.of("codigo", "IDEMPOTENCIA_CONFLICTIVA", "mensaje", "La clave se usó con otros datos")));
+            return ResponseEntity.ok(Map.of("mensaje", p.getEstado().equals("aprobado") ? "Pago procesado" : "Pago rechazado", "datos", Map.of("id", p.getId(), "pedido_id", p.getPedidoId(), "monto", p.getMonto().toString(), "moneda", "MXN", "metodo_pago", p.getMetodoPago(), "estado", p.getEstado(), "referencia", p.getReferencia(), "creado_en", p.getCreadoEn().toString())));
         }
 
-        // 4. Guardar nuevo pago
-        String simulacion = (String) request.getOrDefault("simulacion", "aprobar");
+        // Consultar Pedidos para validar monto y estado
+        try {
+            String pedidosUrl = System.getenv("PEDIDOS_API_URL") + "/api/pedidos/" + pedidoId;
+            HttpHeaders headers = new HttpHeaders(); headers.set("X-Internal-Token", expectedToken);
+            ResponseEntity<Map> pedidoResponse = restTemplate.exchange(pedidosUrl, HttpMethod.GET, new HttpEntity<>(headers), Map.class);
+            
+            Map<String, Object> pedidoData = (Map<String, Object>) pedidoResponse.getBody().get("datos");
+            if (!"pendiente".equals(pedidoData.get("estado").toString())) return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", Map.of("codigo", "PEDIDO_NO_PAGABLE", "mensaje", "El pedido no esta pendiente")));
+            if (!pedidoData.get("total").toString().equals(montoRecibido)) return ResponseEntity.badRequest().body(Map.of("error", Map.of("codigo", "MONTO_INVALIDO", "mensaje", "El monto no coincide")));
+        } catch (Exception e) { return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of("error", Map.of("codigo", "SERVICIO_NO_DISPONIBLE", "mensaje", "Error con Pedidos: " + e.getMessage()))); }
+
+        // Guardar
         String estado = simulacion.equals("aprobar") ? "aprobado" : "rechazado";
         String referencia = "PAGO-" + String.format("%08d", (int)(Math.random() * 100000000));
 
         Pago nuevoPago = new Pago();
-        nuevoPago.setPedidoId(pedidoId);
-        nuevoPago.setMonto(new BigDecimal(montoRecibido));
-        nuevoPago.setMetodoPago(request.get("metodo_pago").toString());
-        nuevoPago.setEstado(estado);
-        nuevoPago.setReferencia(referencia);
-        nuevoPago.setClaveIdempotencia(idempotencyKey);
-        nuevoPago.setSolicitudHash(solicitudHash);
+        nuevoPago.setPedidoId(pedidoId); nuevoPago.setMonto(new BigDecimal(montoRecibido)); nuevoPago.setMetodoPago(metodoPago);
+        nuevoPago.setEstado(estado); nuevoPago.setReferencia(referencia); nuevoPago.setClaveIdempotencia(idempotencyKey); nuevoPago.setSolicitudHash(solicitudHash);
 
-        pagoRepository.save(nuevoPago);
+        try {
+            pagoRepository.save(nuevoPago);
+        } catch (Exception e) {
+            if (e.getMessage().contains("idx_un_pago_aprobado") || e.getMessage().contains("clave_idempotencia") || e.getMessage().contains("referencia")) {
+                return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", Map.of("codigo", "IDEMPOTENCIA_CONFLICTIVA", "mensaje", "Conflicto de concurrencia detectado")));
+            }
+            return ResponseEntity.internalServerError().body(Map.of("error", Map.of("codigo", "ERROR_INTERNO", "mensaje", "Error al guardar")));
+        }
 
-        return ResponseEntity.status(HttpStatus.CREATED).body(Map.of(
-            "mensaje", estado.equals("aprobado") ? "Pago procesado" : "Pago rechazado",
-            "datos", Map.of("id", nuevoPago.getId(), "pedido_id", nuevoPago.getPedidoId(), "monto", nuevoPago.getMonto().toString(), "moneda", "MXN", "metodo_pago", nuevoPago.getMetodoPago(), "estado", nuevoPago.getEstado(), "referencia", nuevoPago.getReferencia(), "creado_en", nuevoPago.getCreadoEn().toString())
-        ));
+        return ResponseEntity.status(HttpStatus.CREATED).body(Map.of("mensaje", estado.equals("aprobado") ? "Pago procesado" : "Pago rechazado", "datos", Map.of("id", nuevoPago.getId(), "pedido_id", nuevoPago.getPedidoId(), "monto", nuevoPago.getMonto().toString(), "moneda", "MXN", "metodo_pago", nuevoPago.getMetodoPago(), "estado", nuevoPago.getEstado(), "referencia", nuevoPago.getReferencia(), "creado_en", nuevoPago.getCreadoEn().toString())));
     }
 
     @GetMapping("/api/pagos/pedido/{pedido_id}")
@@ -122,8 +158,14 @@ public class PagoController {
             @RequestHeader(value = "X-Internal-Token", required = false) String internalToken,
             @RequestHeader(value = "Authorization", required = false) String authHeader) {
         
-        if (internalToken == null && authHeader == null) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", Map.of("codigo", "TOKEN_AUSENTE", "mensaje", "No autorizado")));
+        String expectedToken = System.getenv("INTERNAL_API_TOKEN");
+        boolean isInternal = expectedToken != null && internalToken != null && internalToken.equals(expectedToken);
+        
+        if (!isInternal) {
+            if (authHeader == null || !authHeader.startsWith("Bearer ")) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", Map.of("codigo", "TOKEN_AUSENTE", "mensaje", "No autorizado")));
+            try {
+                verifyJwtRs256(authHeader.split(" ")[1]);
+            } catch (Exception e) { return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", Map.of("codigo", "TOKEN_INVALIDO", "mensaje", e.getMessage()))); }
         }
 
         Optional<Pago> pagoAprobado = pagoRepository.findByPedidoIdAndEstado(pedidoId, "aprobado");

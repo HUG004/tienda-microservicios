@@ -5,3 +5,4 @@ pyjwt
 cryptography
 python-dotenv
 pydantic
+requests
