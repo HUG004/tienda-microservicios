@@ -208,6 +208,67 @@ try {
 
     desactivarFallo();
 
+    // PRUEBAS ADICIONALES:
+    // Cancelacion segura antes de solicitar el pago.
+
+    $admin = [
+        'id' => 3,
+        'rol' => 'admin'
+    ];
+
+    probar(
+        'Cancelar pedido con reserva expirada',
+        fn() => $pedidos->cambiarEstado(
+            $id,
+            'cancelado',
+            $admin
+        )['estado'] === 'cancelado'
+    );
+
+    probar(
+        'Verificar persistencia de la cancelacion',
+        fn() => $pedidos->obtenerPorId(
+            $id,
+            $cliente
+        )['estado'] === 'cancelado'
+    );
+
+    probar(
+        'Repetir cancelacion sin errores',
+        fn() => $pedidos->cambiarEstado(
+            $id,
+            'cancelado',
+            $admin
+        )['estado'] === 'cancelado'
+    );
+
+    limpiarRegistro();
+
+    probarError(
+        'Impedir checkout de pedido cancelado',
+        409,
+        fn() => (new CheckoutService())->procesar(
+            $id,
+            $cliente,
+            $datosCheckout,
+            $clave
+        )
+    );
+
+    probar(
+        'No proteger reserva de pedido cancelado',
+        fn() => contarLlamadas(
+            'POST /api/inventario/proteger-reserva'
+        ) === 0
+    );
+
+    probar(
+        'No solicitar pago de pedido cancelado',
+        fn() => contarLlamadas(
+            'POST /api/pagos/procesar'
+        ) === 0
+    );
+
     // ESCENARIO 2: API Pagos no disponible.
 
     $pedido = $pedidos->crear(
@@ -253,6 +314,31 @@ try {
 
     probar(
         'Pedido pendiente tras fallo de pagos',
+        fn() => $pedidos->obtenerPorId(
+            $id,
+            $cliente
+        )['estado'] === 'pendiente'
+    );
+
+    probarError(
+        'Impedir cancelacion con pago en proceso',
+        409,
+        fn() => $pedidos->cambiarEstado(
+            $id,
+            'cancelado',
+            $admin
+        )
+    );
+
+    probar(
+        'No liberar inventario con pago desconocido',
+        fn() => contarLlamadas(
+            'POST /api/inventario/liberar'
+        ) === 0
+    );
+
+    probar(
+        'Conservar pedido pendiente tras cancelar indebidamente',
         fn() => $pedidos->obtenerPorId(
             $id,
             $cliente

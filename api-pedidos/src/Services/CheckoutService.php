@@ -111,6 +111,23 @@ final class CheckoutService
             $existente = $this->operaciones
                 ->buscarPorPedido($pedidoId);
 
+            // Un pedido cancelado no puede iniciar
+            // ni reanudar un checkout incompleto.
+            //
+            // Se permite recuperar el resultado de un
+            // checkout rechazado que ya fue completado.
+
+            if (
+                $pedido['estado'] === 'cancelado'
+                && ($existente['estado'] ?? null) !== 'completado'
+            ) {
+                throw new ApiException(
+                    409,
+                    'PEDIDO_NO_PROCESABLE',
+                    'El pedido fue cancelado'
+                );
+            }
+
             if (
                 $existente === null
                 && $pedido['estado'] !== 'pendiente'
