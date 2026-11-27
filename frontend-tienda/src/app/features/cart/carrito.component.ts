@@ -5,9 +5,16 @@ import { TiendaService } from '../../core/services/tienda.service';
 import { AuthService } from '../../core/services/auth.service';
 import {
   Carrito,
+  CheckoutRequest,
   CheckoutResponseData,
   CotizacionEnvio,
 } from '../../core/models/api.models';
+
+interface CheckoutPendiente {
+  pedidoId: number;
+  idempotencyKey: string;
+  payload: CheckoutRequest;
+}
 
 @Component({
   selector: 'app-carrito',
@@ -19,7 +26,7 @@ import {
 
       @if (cargando()) {
         <div class="bg-white h-64 rounded-2xl border border-slate-200 animate-pulse"></div>
-      } @else if (!carrito() || carrito()?.productos?.length === 0) {
+      } @else if ((!carrito() || carrito()?.productos?.length === 0) && !checkoutPendiente()) {
         <div class="bg-white p-12 rounded-2xl border border-slate-200 text-center">
           <p class="text-slate-500 mb-4">Tu carrito está vacío en este momento.</p>
           <a
@@ -36,58 +43,78 @@ import {
             <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
               <div class="flex justify-between items-center pb-4 border-b border-slate-100 mb-4">
                 <h2 class="font-bold text-lg text-slate-800">
-                  Artículos ({{ carrito()?.cantidad_total }})
+                  Artículos ({{ carrito()?.cantidad_total || 0 }})
                 </h2>
-                <button
-                  (click)="vaciarCarrito()"
-                  class="text-xs text-rose-600 hover:underline font-medium cursor-pointer"
-                >
-                  Vaciar carrito
-                </button>
-              </div>
-
-              <div class="divide-y divide-slate-100">
-                @for (item of carrito()?.productos; track item.producto_id) {
-                  <div class="py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                    <div>
-                      <h3 class="font-semibold text-slate-900">{{ item.nombre }}</h3>
-                      <p class="text-xs text-slate-500">Precio unitario: \${{ item.precio_unitario }} MXN</p>
-                    </div>
-
-                    <div class="flex items-center gap-3">
-                      <button
-                        (click)="cambiarCantidad(item.producto_id, item.cantidad - 1)"
-                        [disabled]="item.cantidad <= 1"
-                        class="w-8 h-8 rounded-lg border border-slate-300 font-bold disabled:opacity-40 cursor-pointer"
-                      >
-                        -
-                      </button>
-                      <span class="w-8 text-center font-semibold text-sm">{{ item.cantidad }}</span>
-                      <button
-                        (click)="cambiarCantidad(item.producto_id, item.cantidad + 1)"
-                        class="w-8 h-8 rounded-lg border border-slate-300 font-bold cursor-pointer"
-                      >
-                        +
-                      </button>
-
-                      <span class="w-24 text-right font-bold text-slate-900">\${{ item.subtotal }}</span>
-
-                      <button
-                        (click)="eliminarItem(item.producto_id)"
-                        class="text-rose-500 hover:text-rose-700 text-xs ml-2 cursor-pointer"
-                      >
-                        Eliminar
-                      </button>
-                    </div>
-                  </div>
+                @if (!checkoutPendiente()) {
+                  <button
+                    (click)="vaciarCarrito()"
+                    class="text-xs text-rose-600 hover:underline font-medium cursor-pointer"
+                  >
+                    Vaciar carrito
+                  </button>
                 }
               </div>
+
+              @if (carrito()?.productos?.length) {
+                <div class="divide-y divide-slate-100">
+                  @for (item of carrito()?.productos; track item.producto_id) {
+                    <div class="py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      <div>
+                        <h3 class="font-semibold text-slate-900">{{ item.nombre }}</h3>
+                        <p class="text-xs text-slate-500">Precio unitario: \${{ item.precio_unitario }} MXN</p>
+                      </div>
+
+                      <div class="flex items-center gap-3">
+                        <button
+                          (click)="cambiarCantidad(item.producto_id, item.cantidad - 1)"
+                          [disabled]="item.cantidad <= 1 || !!checkoutPendiente()"
+                          class="w-8 h-8 rounded-lg border border-slate-300 font-bold disabled:opacity-40 cursor-pointer"
+                        >
+                          -
+                        </button>
+                        <span class="w-8 text-center font-semibold text-sm">{{ item.cantidad }}</span>
+                        <button
+                          (click)="cambiarCantidad(item.producto_id, item.cantidad + 1)"
+                          [disabled]="!!checkoutPendiente()"
+                          class="w-8 h-8 rounded-lg border border-slate-300 font-bold disabled:opacity-40 cursor-pointer"
+                        >
+                          +
+                        </button>
+
+                        <span class="w-24 text-right font-bold text-slate-900">\${{ item.subtotal }}</span>
+
+                        <button
+                          (click)="eliminarItem(item.producto_id)"
+                          [disabled]="!!checkoutPendiente()"
+                          class="text-rose-500 hover:text-rose-700 disabled:opacity-40 text-xs ml-2 cursor-pointer"
+                        >
+                          Eliminar
+                        </button>
+                      </div>
+                    </div>
+                  }
+                </div>
+              } @else {
+                <p class="text-sm text-slate-500 py-4">
+                  Los artículos ya fueron reservados en el pedido pendiente #{{ checkoutPendiente()?.pedidoId }}.
+                </p>
+              }
             </div>
           </div>
 
           <!-- Panel de Envío y Pago (Checkout) -->
           <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 h-fit space-y-6">
             <h2 class="font-bold text-lg text-slate-900">Resumen y Pago</h2>
+
+            @if (checkoutPendiente()) {
+              <div class="p-3 rounded-lg bg-amber-50 border border-amber-300 text-amber-900 text-xs space-y-1">
+                <p class="font-bold">Servicio temporalmente no disponible (HTTP 503)</p>
+                <p>
+                  Tu <strong>Pedido #{{ checkoutPendiente()?.pedidoId }}</strong> ya fue reservado.
+                  Conservamos tu clave de idempotencia y solicitud original para reintentar sin duplicar la compra.
+                </p>
+              </div>
+            }
 
             @if (errorMsg()) {
               <div class="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs">
@@ -132,15 +159,16 @@ import {
                   <input
                     type="text"
                     [(ngModel)]="codigoPostal"
+                    [disabled]="!!checkoutPendiente()"
                     maxlength="5"
                     placeholder="38000"
-                    class="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                    class="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm disabled:bg-slate-100"
                   />
                   <button
                     type="button"
                     (click)="cotizarEnvio()"
-                    [disabled]="cotizando()"
-                    class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold rounded-lg cursor-pointer"
+                    [disabled]="cotizando() || !!checkoutPendiente()"
+                    class="px-3 py-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-white text-xs font-semibold rounded-lg cursor-pointer"
                   >
                     {{ cotizando() ? '...' : 'Cotizar' }}
                   </button>
@@ -151,9 +179,10 @@ import {
                 <label class="block text-xs font-semibold text-slate-700 mb-1">Dirección de entrega</label>
                 <textarea
                   [(ngModel)]="direccion"
+                  [disabled]="!!checkoutPendiente()"
                   rows="2"
                   placeholder="Calle Ejemplo 123, Col. Centro, Celaya, Gto."
-                  class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                  class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm disabled:bg-slate-100"
                 ></textarea>
               </div>
 
@@ -161,7 +190,8 @@ import {
                 <label class="block text-xs font-semibold text-slate-700 mb-1">Método de pago</label>
                 <select
                   [(ngModel)]="metodoPago"
-                  class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white"
+                  [disabled]="!!checkoutPendiente()"
+                  class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white disabled:bg-slate-100"
                 >
                   <option value="tarjeta_simulada">Tarjeta Simulada</option>
                   <option value="transferencia_simulada">Transferencia Simulada</option>
@@ -172,7 +202,8 @@ import {
                 <label class="block text-xs font-semibold text-slate-700 mb-1">Simulación de pasarela</label>
                 <select
                   [(ngModel)]="simulacion"
-                  class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white"
+                  [disabled]="!!checkoutPendiente()"
+                  class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white disabled:bg-slate-100"
                 >
                   <option value="aprobar">Aprobar pago</option>
                   <option value="rechazar">Rechazar pago (Prueba compensación)</option>
@@ -184,7 +215,7 @@ import {
             <div class="pt-4 border-t border-slate-100 space-y-2 text-sm">
               <div class="flex justify-between text-slate-600">
                 <span>Subtotal productos:</span>
-                <span>\${{ carrito()?.subtotal }} MXN</span>
+                <span>\${{ carrito()?.subtotal || '0.00' }} MXN</span>
               </div>
               <div class="flex justify-between text-slate-600">
                 <span>Envío estimado {{ cotizacion() ? '(' + cotizacion()?.dias_estimados + ' días)' : '' }}:</span>
@@ -196,13 +227,27 @@ import {
               </div>
             </div>
 
-            <button
-              (click)="confirmarCompra()"
-              [disabled]="procesandoCompra()"
-              class="w-full bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition cursor-pointer"
-            >
-              {{ procesandoCompra() ? 'Procesando orden...' : 'Confirmar y Pagar' }}
-            </button>
+            @if (checkoutPendiente()) {
+              <button
+                (click)="reintentarCheckout()"
+                [disabled]="procesandoCompra()"
+                class="w-full bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition cursor-pointer"
+              >
+                {{
+                  procesandoCompra()
+                    ? 'Reintentando pago...'
+                    : 'Reintentar pago (Pedido #' + checkoutPendiente()?.pedidoId + ')'
+                }}
+              </button>
+            } @else {
+              <button
+                (click)="confirmarCompra()"
+                [disabled]="procesandoCompra()"
+                class="w-full bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition cursor-pointer"
+              >
+                {{ procesandoCompra() ? 'Procesando orden...' : 'Confirmar y Pagar' }}
+              </button>
+            }
           </div>
         </div>
       }
@@ -217,6 +262,7 @@ export class CarritoComponent implements OnInit {
   carrito = signal<Carrito | null>(null);
   cotizacion = signal<CotizacionEnvio | null>(null);
   resultadoCheckout = signal<CheckoutResponseData | null>(null);
+  checkoutPendiente = signal<CheckoutPendiente | null>(null);
 
   cargando = signal(true);
   cotizando = signal(false);
@@ -306,6 +352,12 @@ export class CarritoComponent implements OnInit {
   }
 
   confirmarCompra(): void {
+    // Si ya existe un pedido pendiente por error 503, reintentar directamente con los mismos datos
+    if (this.checkoutPendiente()) {
+      this.reintentarCheckout();
+      return;
+    }
+
     const user = this.auth.usuario();
     if (!user) return;
 
@@ -327,31 +379,56 @@ export class CarritoComponent implements OnInit {
       })
       .subscribe({
         next: (pedidoRes) => {
-          const pedidoId = pedidoRes.datos.id;
-          const idempotencyKey = crypto.randomUUID();
+          const operacion: CheckoutPendiente = {
+            pedidoId: pedidoRes.datos.id,
+            idempotencyKey: crypto.randomUUID(),
+            payload: {
+              metodo_pago: this.metodoPago,
+              simulacion: this.simulacion,
+            },
+          };
 
-          // Paso 2: Ejecutar Checkout Saga (POST /api/pedidos/{id}/checkout)
-          this.tienda
-            .procesarCheckout(
-              pedidoId,
-              { metodo_pago: this.metodoPago, simulacion: this.simulacion },
-              idempotencyKey
-            )
-            .subscribe({
-              next: (checkoutRes) => {
-                this.procesandoCompra.set(false);
-                this.resultadoCheckout.set(checkoutRes.datos);
-                this.cargarCarrito(); // Actualiza contador de carrito si se vació
-              },
-              error: (err) => {
-                this.procesandoCompra.set(false);
-                this.errorMsg.set(err.error?.error?.mensaje || 'Error al procesar el pago del pedido');
-              },
-            });
+          this.ejecutarCheckoutSaga(operacion);
         },
         error: (err) => {
           this.procesandoCompra.set(false);
           this.errorMsg.set(err.error?.error?.mensaje || 'No se pudo crear el pedido (verifica stock)');
+        },
+      });
+  }
+
+  reintentarCheckout(): void {
+    const pendiente = this.checkoutPendiente();
+    if (!pendiente) return;
+
+    this.procesandoCompra.set(true);
+    this.errorMsg.set(null);
+    this.ejecutarCheckoutSaga(pendiente);
+  }
+
+  private ejecutarCheckoutSaga(operacion: CheckoutPendiente): void {
+    this.tienda
+      .procesarCheckout(operacion.pedidoId, operacion.payload, operacion.idempotencyKey)
+      .subscribe({
+        next: (checkoutRes) => {
+          this.procesandoCompra.set(false);
+          this.checkoutPendiente.set(null);
+          this.resultadoCheckout.set(checkoutRes.datos);
+          this.cargarCarrito();
+        },
+        error: (err) => {
+          this.procesandoCompra.set(false);
+          if (err.status === 503) {
+            // Conserva pedidoId, idempotencyKey y payload original para recuperación idempotente
+            this.checkoutPendiente.set(operacion);
+            this.errorMsg.set(
+              err.error?.error?.mensaje ||
+                `Servicio no disponible (503). Presiona reintentar para completar el pedido #${operacion.pedidoId}.`
+            );
+          } else {
+            this.checkoutPendiente.set(null);
+            this.errorMsg.set(err.error?.error?.mensaje || 'Error al procesar el pago del pedido');
+          }
         },
       });
   }
