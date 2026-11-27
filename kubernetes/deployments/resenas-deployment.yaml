@@ -1,0 +1,132 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-resenas
+  namespace: tienda
+  labels:
+    app: api-resenas
+
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+
+  selector:
+    matchLabels:
+      app: api-resenas
+
+  template:
+    metadata:
+      labels:
+        app: api-resenas
+
+    spec:
+      automountServiceAccountToken: false
+
+      containers:
+        - name: api-resenas
+          image: tienda/api-resenas:1.0.0
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: http
+              containerPort: 8008
+
+          env:
+            - name: APP_ENV
+              valueFrom:
+                configMapKeyRef:
+                  name: tienda-app-config
+                  key: APP_ENV
+            - name: JWT_ISSUER
+              valueFrom:
+                configMapKeyRef:
+                  name: tienda-app-config
+                  key: JWT_ISSUER
+            - name: JWT_AUDIENCE
+              valueFrom:
+                configMapKeyRef:
+                  name: tienda-app-config
+                  key: JWT_AUDIENCE
+            - name: JWT_PUBLIC_KEY_PATH
+              valueFrom:
+                configMapKeyRef:
+                  name: tienda-app-config
+                  key: JWT_PUBLIC_KEY_PATH
+            - name: PRODUCTOS_API_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: tienda-app-config
+                  key: PRODUCTOS_API_URL
+            - name: MONGO_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: tienda-database-config
+                  key: MONGO_HOST
+            - name: MONGO_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: tienda-database-config
+                  key: MONGO_PORT
+            - name: MONGO_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: tienda-database-config
+                  key: MONGO_DB
+            - name: MONGO_APP_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: tienda-database-config
+                  key: MONGO_APP_USER
+            - name: MONGO_APP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mongodb-secret
+                  key: MONGO_APP_PASSWORD
+            - name: MONGO_URI
+              valueFrom:
+                secretKeyRef:
+                  name: resenas-db-secret
+                  key: MONGO_URI
+
+          volumeMounts:
+            - name: jwt-public
+              mountPath: /run/secrets
+              readOnly: true
+
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+      volumes:
+        - name: jwt-public
+          secret:
+            secretName: jwt-public-secret
+            defaultMode: 0444

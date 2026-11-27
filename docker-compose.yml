@@ -54,7 +54,7 @@ services:
       context: ./api-pedidos
       dockerfile: Dockerfile
 
-    image: tienda/api-pedidos:1.0.0
+    image: tienda/api-pedidos:1.0.2
 
     container_name: tienda-api-pedidos
 
@@ -105,7 +105,225 @@ services:
       timeout: 5s
       retries: 5
       start_period: 15s
-  
+
+  api-productos:
+    build:
+      context: ./api-productos
+      dockerfile: Dockerfile
+    image: tienda/api-productos:1.0.0
+    container_name: tienda-api-productos
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8002:8002"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: ${PRODUCTOS_DB_NAME}
+      DB_USER: ${PRODUCTOS_DB_USER}
+      DB_PASSWORD: ${PRODUCTOS_DB_PASSWORD}
+      JWT_ISSUER: ${JWT_ISSUER}
+      JWT_AUDIENCE: ${JWT_AUDIENCE}
+      JWT_PUBLIC_KEY_PATH: /run/secrets/jwt_public.pem
+    volumes:
+      - ./secrets/jwt_public.pem:/run/secrets/jwt_public.pem:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - red-tienda
+    healthcheck:
+      test: ["CMD", "php", "-r", "exit(@file_get_contents('http://127.0.0.1:8002/ready') === false ? 1 : 0);"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  api-envios:
+    build:
+      context: ./api-envios
+      dockerfile: Dockerfile
+    image: tienda/api-envios:1.0.0
+    container_name: tienda-api-envios
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8003:8003"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      ENVIOS_DB_NAME: ${ENVIOS_DB_NAME}
+      ENVIOS_DB_USER: ${ENVIOS_DB_USER}
+      ENVIOS_DB_PASSWORD: ${ENVIOS_DB_PASSWORD}
+      JWT_ISSUER: ${JWT_ISSUER}
+      JWT_AUDIENCE: ${JWT_AUDIENCE}
+      JWT_PUBLIC_KEY_PATH: /run/secrets/jwt_public.pem
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN}
+      PEDIDOS_API_URL: ${PEDIDOS_API_URL}
+    volumes:
+      - ./secrets/jwt_public.pem:/run/secrets/jwt_public.pem:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - red-tienda
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8003/ready', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  api-inventario:
+    build:
+      context: ./api-inventario
+      dockerfile: Dockerfile
+    image: tienda/api-inventario:1.0.0
+    container_name: tienda-api-inventario
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8004:8004"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: ${INVENTARIO_DB_NAME}
+      DB_USER: ${INVENTARIO_DB_USER}
+      DB_PASSWORD: ${INVENTARIO_DB_PASSWORD}
+      JWT_ISSUER: ${JWT_ISSUER}
+      JWT_AUDIENCE: ${JWT_AUDIENCE}
+      JWT_PUBLIC_KEY_PATH: /run/secrets/jwt_public.pem
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN}
+      PRODUCTOS_API_URL: ${PRODUCTOS_API_URL}
+    volumes:
+      - ./secrets/jwt_public.pem:/run/secrets/jwt_public.pem:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - red-tienda
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8004/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  api-carrito:
+    build:
+      context: ./api-carrito
+      dockerfile: Dockerfile
+    image: tienda/api-carrito:1.0.0
+    container_name: tienda-api-carrito
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8005:8005"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      CARRITO_DB_NAME: ${CARRITO_DB_NAME}
+      CARRITO_DB_USER: ${CARRITO_DB_USER}
+      CARRITO_DB_PASSWORD: ${CARRITO_DB_PASSWORD}
+      JWT_ISSUER: ${JWT_ISSUER}
+      JWT_AUDIENCE: ${JWT_AUDIENCE}
+      JWT_PUBLIC_KEY_PATH: /run/secrets/jwt_public.pem
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN}
+      PRODUCTOS_API_URL: ${PRODUCTOS_API_URL}
+      INVENTARIO_API_URL: ${INVENTARIO_API_URL}
+    volumes:
+      - ./secrets/jwt_public.pem:/run/secrets/jwt_public.pem:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - red-tienda
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8005/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  api-pagos:
+    build:
+      context: ./api-pagos
+      dockerfile: Dockerfile
+    image: tienda/api-pagos:1.0.0
+    container_name: tienda-api-pagos
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8007:8007"
+    environment:
+      PAGOS_DB_NAME: ${PAGOS_DB_NAME}
+      PAGOS_DB_USER: ${PAGOS_DB_USER}
+      PAGOS_DB_PASSWORD: ${PAGOS_DB_PASSWORD}
+      JWT_ISSUER: ${JWT_ISSUER}
+      JWT_AUDIENCE: ${JWT_AUDIENCE}
+      JWT_PUBLIC_KEY_PATH: /run/secrets/jwt_public.pem
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN}
+      PEDIDOS_API_URL: ${PEDIDOS_API_URL}
+    volumes:
+      - ./secrets/jwt_public.pem:/run/secrets/jwt_public.pem:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - red-tienda
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8007/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+
+  api-resenas:
+    build:
+      context: ./api-resenas
+      dockerfile: Dockerfile
+    image: tienda/api-resenas:1.0.0
+    container_name: tienda-api-resenas
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8008:8008"
+    environment:
+      MONGO_HOST: mongodb
+      MONGO_DB: ${MONGO_DB}
+      MONGO_APP_USER: ${MONGO_APP_USER}
+      MONGO_APP_PASSWORD: ${MONGO_APP_PASSWORD}
+      JWT_ISSUER: ${JWT_ISSUER}
+      JWT_AUDIENCE: ${JWT_AUDIENCE}
+      JWT_PUBLIC_KEY_PATH: /run/secrets/jwt_public.pem
+      PRODUCTOS_API_URL: ${PRODUCTOS_API_URL}
+    volumes:
+      - ./secrets/jwt_public.pem:/run/secrets/jwt_public.pem:ro
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - red-tienda
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8008/ready', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  frontend:
+    build:
+      context: ./frontend-tienda
+      dockerfile: Dockerfile
+    image: tienda/frontend:1.0.0
+    container_name: tienda-frontend
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:4200:4200"
+    environment:
+      NGINX_DNS_RESOLVER: "127.0.0.11"
+    networks:
+      - red-tienda
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:4200/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
   postgres:
     image: postgres:16
     container_name: tienda-postgres

@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-pagos
+  namespace: tienda
+  labels:
+    app: api-pagos
+
+spec:
+  type: ClusterIP
+
+  selector:
+    app: api-pagos
+
+  ports:
+    - name: http
+      port: 8007
+      targetPort: http
+      protocol: TCP
