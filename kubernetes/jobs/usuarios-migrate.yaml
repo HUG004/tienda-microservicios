@@ -1,0 +1,49 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: usuarios-migrate
+  namespace: tienda
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 300
+
+  template:
+    metadata:
+      labels:
+        app: usuarios-migrate
+    spec:
+      restartPolicy: Never
+
+      containers:
+        - name: migrate
+          image: tienda/api-usuarios:1.0.0
+          imagePullPolicy: IfNotPresent
+
+          command:
+            - php
+            - scripts/migrate.php
+
+          env:
+            - name: DB_HOST
+              value: postgres
+
+            - name: DB_PORT
+              value: "5432"
+
+            - name: DB_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: tienda-database-config
+                  key: USUARIOS_DB_NAME
+
+            - name: DB_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: tienda-database-config
+                  key: USUARIOS_DB_USER
+
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: usuarios-db-secret
+                  key: DB_PASSWORD

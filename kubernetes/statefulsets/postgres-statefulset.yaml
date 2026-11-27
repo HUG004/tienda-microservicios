@@ -1,0 +1,140 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: tienda
+  labels:
+    app: postgres
+spec:
+  serviceName: postgres
+  replicas: 1
+
+  selector:
+    matchLabels:
+      app: postgres
+
+  template:
+    metadata:
+      labels:
+        app: postgres
+
+    spec:
+      terminationGracePeriodSeconds: 60
+
+      containers:
+        - name: postgres
+          image: postgres:16
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: postgres
+              containerPort: 5432
+
+          envFrom:
+            - configMapRef:
+                name: tienda-database-config
+
+            - secretRef:
+                name: postgres-secret
+
+          env:
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+
+            - name: USUARIOS_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: usuarios-db-secret
+                  key: DB_PASSWORD
+
+            - name: PRODUCTOS_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: productos-db-secret
+                  key: DB_PASSWORD
+
+            - name: ENVIOS_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: envios-db-secret
+                  key: DB_PASSWORD
+
+            - name: INVENTARIO_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: inventario-db-secret
+                  key: DB_PASSWORD
+
+            - name: CARRITO_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: carrito-db-secret
+                  key: DB_PASSWORD
+
+            - name: PEDIDOS_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: pedidos-db-secret
+                  key: DB_PASSWORD
+
+            - name: PAGOS_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: pagos-db-secret
+                  key: DB_PASSWORD
+
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+
+            - name: postgres-init
+              mountPath: /docker-entrypoint-initdb.d
+              readOnly: true
+
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+
+          startupProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - 'pg_isready -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 60
+
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - 'pg_isready -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - 'pg_isready -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 5
+
+      volumes:
+        - name: postgres-data
+          persistentVolumeClaim:
+            claimName: postgres-pvc
+
+        - name: postgres-init
+          configMap:
+            name: postgres-init
+            defaultMode: 0555

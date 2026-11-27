@@ -1,0 +1,49 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: pedidos-migrate
+  namespace: tienda
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 300
+
+  template:
+    metadata:
+      labels:
+        app: pedidos-migrate
+    spec:
+      restartPolicy: Never
+
+      containers:
+        - name: migrate
+          image: tienda/api-pedidos:1.0.0
+          imagePullPolicy: IfNotPresent
+
+          command:
+            - php
+            - scripts/migrate.php
+
+          env:
+            - name: DB_HOST
+              value: postgres
+
+            - name: DB_PORT
+              value: "5432"
+
+            - name: DB_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: tienda-database-config
+                  key: PEDIDOS_DB_NAME
+
+            - name: DB_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: tienda-database-config
+                  key: PEDIDOS_DB_USER
+
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: pedidos-db-secret
+                  key: DB_PASSWORD

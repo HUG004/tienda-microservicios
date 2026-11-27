@@ -1,0 +1,113 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-pedidos
+  namespace: tienda
+  labels:
+    app: api-pedidos
+
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+
+  selector:
+    matchLabels:
+      app: api-pedidos
+
+  template:
+    metadata:
+      labels:
+        app: api-pedidos
+
+    spec:
+      automountServiceAccountToken: false
+
+      containers:
+        - name: api-pedidos
+          image: tienda/api-pedidos:1.0.0
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: http
+              containerPort: 8006
+
+          envFrom:
+            - configMapRef:
+                name: tienda-app-config
+
+            - secretRef:
+                name: internal-api-secret
+
+          env:
+            - name: DB_HOST
+              value: postgres
+
+            - name: DB_PORT
+              value: "5432"
+
+            - name: DB_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: tienda-database-config
+                  key: PEDIDOS_DB_NAME
+
+            - name: DB_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: tienda-database-config
+                  key: PEDIDOS_DB_USER
+
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: pedidos-db-secret
+                  key: DB_PASSWORD
+
+            - name: JWT_PRIVATE_KEY_PATH
+              value: ""
+
+            - name: PHP_CLI_SERVER_WORKERS
+              value: "4"
+
+          volumeMounts:
+            - name: jwt-public
+              mountPath: /run/secrets
+              readOnly: true
+
+          resources:
+            requests:
+              cpu: "150m"
+              memory: "128Mi"
+            limits:
+              cpu: "1000m"
+              memory: "512Mi"
+
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+      volumes:
+        - name: jwt-public
+          secret:
+            secretName: jwt-public-secret
+            defaultMode: 0444
