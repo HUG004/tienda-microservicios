@@ -77,6 +77,7 @@ func (s *servidor) router() *gin.Engine {
 	api := r.Group("/api/inventario")
 	interno := s.exigirInterno()
 	api.POST("/reservar", interno, s.reservar)
+	api.POST("/proteger-reserva", interno, s.protegerReserva)
 	api.POST("/confirmar", interno, s.confirmar)
 	api.POST("/liberar", interno, s.liberar)
 	api.POST("/reabastecer", s.exigirAdmin(), s.reabastecer)
@@ -421,6 +422,79 @@ func leerPedido(c *gin.Context) (int64, bool) {
 	return req.PedidoID, true
 }
 
+func (s *servidor) protegerReserva(c *gin.Context) {
+        id, ok := leerPedido(c)
+        if !ok {
+                return
+        }
+
+        ctx := c.Request.Context()
+        s.expirarSilencioso(ctx)
+
+        tx, err := s.db.Begin(ctx)
+        if err != nil {
+                s.fallo(c, err)
+                return
+        }
+        defer tx.Rollback(ctx)
+
+        if err := bloquearPedido(ctx, tx, id); err != nil {
+                s.fallo(c, err)
+                return
+        }
+
+        filas, err := reservasDe(ctx, tx, id, true)
+        if err != nil {
+                s.fallo(c, err)
+                return
+        }
+
+        if len(filas) == 0 {
+                s.fallo(c, nuevoErr(http.StatusNotFound,
+                        "RESERVA_NO_ENCONTRADA", "El pedido no tiene reserva"))
+                return
+        }
+
+        for _, f := range filas {
+                switch f.Estado {
+                case "pendiente":
+                        if !f.ExpiraEn.After(time.Now()) {
+                                s.fallo(c, nuevoErr(http.StatusConflict,
+                                        "RESERVA_NO_PROTEGIBLE", "La reserva esta expirada"))
+                                return
+                        }
+                case "procesando_pago":
+                case "confirmada", "liberada", "expirada":
+                        s.fallo(c, nuevoErr(http.StatusConflict,
+                                "RESERVA_NO_PROTEGIBLE", "La reserva esta "+f.Estado))
+                        return
+                default:
+                        s.fallo(c, nuevoErr(http.StatusConflict,
+                                "RESERVA_NO_PROTEGIBLE", "La reserva tiene un estado no valido"))
+                        return
+                }
+        }
+
+        if _, err := tx.Exec(ctx,
+                `UPDATE reservas
+                 SET estado = 'procesando_pago'
+                 WHERE pedido_id = $1 AND estado = 'pendiente'`,
+                id); err != nil {
+                s.fallo(c, err)
+                return
+        }
+
+        if err := tx.Commit(ctx); err != nil {
+                s.fallo(c, err)
+                return
+        }
+
+        responderOK(c, http.StatusOK, "Reserva protegida correctamente", gin.H{
+                "pedido_id": id,
+                "estado":    "procesando_pago",
+        })
+}
+
 func (s *servidor) confirmar(c *gin.Context) {
 	id, ok := leerPedido(c)
 	if !ok {
@@ -457,13 +531,16 @@ func (s *servidor) confirmarTx(ctx context.Context, pedidoID int64) (gin.H, erro
 	hayPendiente := false
 	for _, f := range filas {
 		switch f.Estado {
-		case "pendiente":
-			if f.ExpiraEn.Before(time.Now()) {
-				return nil, nuevoErr(http.StatusConflict, "RESERVA_NO_CONFIRMABLE", "La reserva expiro")
-			}
-			hayPendiente = true
-		case "liberada", "expirada":
-			return nil, nuevoErr(http.StatusConflict, "RESERVA_NO_CONFIRMABLE", "La reserva esta "+f.Estado)
+			case "pendiente":
+					if !f.ExpiraEn.After(time.Now()) {
+							return nil, nuevoErr(http.StatusConflict, "RESERVA_NO_CONFIRMABLE", "La reserva expiro")
+					}
+					hayPendiente = true
+			case "procesando_pago":
+					hayPendiente = true
+			case "liberada", "expirada":
+					return nil, nuevoErr(http.StatusConflict, "RESERVA_NO_CONFIRMABLE", "La reserva esta "+f.Estado)
+			case "confirmada":
 		}
 	}
 
@@ -473,8 +550,8 @@ func (s *servidor) confirmarTx(ctx context.Context, pedidoID int64) (gin.H, erro
 			return nil, err
 		}
 		for _, f := range filas {
-			if f.Estado != "pendiente" {
-				continue
+			if f.Estado != "pendiente" && f.Estado != "procesando_pago" {
+        		continue
 			}
 			if _, err := tx.Exec(ctx,
 				`UPDATE inventario
@@ -484,7 +561,10 @@ func (s *servidor) confirmarTx(ctx context.Context, pedidoID int64) (gin.H, erro
 			}
 		}
 		if _, err := tx.Exec(ctx,
-			`UPDATE reservas SET estado = 'confirmada' WHERE pedido_id = $1 AND estado = 'pendiente'`,
+			`UPDATE reservas
+			SET estado = 'confirmada'
+			WHERE pedido_id = $1
+			AND estado IN ('pendiente', 'procesando_pago')`,
 			pedidoID); err != nil {
 			return nil, err
 		}
@@ -524,6 +604,7 @@ func (s *servidor) liberar(c *gin.Context) {
 	responderOK(c, http.StatusOK, "Reserva liberada correctamente", datos)
 }
 
+
 func (s *servidor) liberarTx(ctx context.Context, pedidoID int64) (gin.H, error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
@@ -534,50 +615,91 @@ func (s *servidor) liberarTx(ctx context.Context, pedidoID int64) (gin.H, error)
 	if err := bloquearPedido(ctx, tx, pedidoID); err != nil {
 		return nil, err
 	}
+
 	filas, err := reservasDe(ctx, tx, pedidoID, true)
 	if err != nil {
 		return nil, err
 	}
+
 	if len(filas) == 0 {
-		return nil, nuevoErr(http.StatusNotFound, "RESERVA_NO_ENCONTRADA", "El pedido no tiene reserva")
+		return nil, nuevoErr(
+			http.StatusNotFound,
+			"RESERVA_NO_ENCONTRADA",
+			"El pedido no tiene reserva",
+		)
 	}
 
 	hayPendiente := false
+
 	for _, f := range filas {
 		switch f.Estado {
 		case "confirmada":
-			return nil, nuevoErr(http.StatusConflict, "RESERVA_NO_LIBERABLE", "La reserva ya fue confirmada")
-		case "pendiente":
+			return nil, nuevoErr(
+				http.StatusConflict,
+				"RESERVA_NO_LIBERABLE",
+				"La reserva ya fue confirmada",
+			)
+
+		case "pendiente", "procesando_pago":
 			hayPendiente = true
+
+		case "liberada":
+			// Ya está liberada; no se modifica nuevamente.
+
+		case "expirada":
+			// Ya expiró y su stock reservado fue liberado.
+
+		default:
+			return nil, nuevoErr(
+				http.StatusConflict,
+				"RESERVA_NO_LIBERABLE",
+				"La reserva tiene un estado no válido",
+			)
 		}
 	}
 
 	estado := filas[0].Estado
+
 	if hayPendiente {
 		if _, err := stockDe(ctx, tx, idsDe(filas), true); err != nil {
 			return nil, err
 		}
+
 		for _, f := range filas {
-			if f.Estado != "pendiente" {
+			if f.Estado != "pendiente" && f.Estado != "procesando_pago" {
 				continue
 			}
+
 			if _, err := tx.Exec(ctx,
-				`UPDATE inventario SET stock_reservado = stock_reservado - $2, actualizado_en = NOW() WHERE producto_id = $1`,
+				`UPDATE inventario
+				 SET stock_reservado = stock_reservado - $2,
+				     actualizado_en = NOW()
+				 WHERE producto_id = $1`,
 				f.ProductoID, f.Cantidad); err != nil {
 				return nil, err
 			}
 		}
+
 		if _, err := tx.Exec(ctx,
-			`UPDATE reservas SET estado = 'liberada' WHERE pedido_id = $1 AND estado = 'pendiente'`,
+			`UPDATE reservas
+			 SET estado = 'liberada'
+			 WHERE pedido_id = $1
+			   AND estado IN ('pendiente', 'procesando_pago')`,
 			pedidoID); err != nil {
 			return nil, err
 		}
-		if err := tx.Commit(ctx); err != nil {
-			return nil, err
-		}
+
 		estado = "liberada"
 	}
-	return gin.H{"pedido_id": pedidoID, "estado": estado}, nil
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+
+	return gin.H{
+		"pedido_id": pedidoID,
+		"estado":    estado,
+	}, nil
 }
 
 // ---------- GET /api/inventario/reservas/:pedido_id ----------

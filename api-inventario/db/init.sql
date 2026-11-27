@@ -12,11 +12,30 @@ CREATE TABLE IF NOT EXISTS reservas (
     producto_id BIGINT NOT NULL REFERENCES inventario(producto_id),
     cantidad INTEGER NOT NULL CHECK (cantidad > 0),
     estado VARCHAR(20) NOT NULL DEFAULT 'pendiente'
-        CHECK (estado IN ('pendiente', 'confirmada', 'liberada', 'expirada')),
+    CHECK (estado IN (
+        'pendiente',
+        'procesando_pago',
+        'confirmada',
+        'liberada',
+        'expirada'
+    )),
     creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     expira_en TIMESTAMPTZ NOT NULL,
     UNIQUE (pedido_id, producto_id)
 );
+
+ALTER TABLE reservas
+    DROP CONSTRAINT IF EXISTS reservas_estado_check;
+
+ALTER TABLE reservas
+    ADD CONSTRAINT reservas_estado_check
+    CHECK (estado IN (
+        'pendiente',
+        'procesando_pago',
+        'confirmada',
+        'liberada',
+        'expirada'
+    ));
 
 INSERT INTO inventario (producto_id, stock_total) VALUES
     (1, 20), (2, 30), (3, 10), (4, 25), (5, 15),
