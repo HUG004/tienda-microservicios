@@ -24,7 +24,7 @@ spec:
 
       containers:
         - name: api-pedidos
-          image: tienda/api-pedidos:1.0.1
+          image: tienda/api-pedidos:1.0.2
           imagePullPolicy: IfNotPresent
 
           ports:
