@@ -97,6 +97,69 @@ services:
       retries: 10
       start_period: 40s
 
+  api-carrito:
+    build: ./api-carrito
+    container_name: tienda-carrito
+    restart: unless-stopped
+    ports:
+      - "8005:8005"
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - CARRITO_DB_NAME=${CARRITO_DB_NAME}
+      - CARRITO_DB_USER=${CARRITO_DB_USER}
+      - CARRITO_DB_PASSWORD=${CARRITO_DB_PASSWORD}
+      - INTERNAL_API_TOKEN=${INTERNAL_API_TOKEN}
+      - PRODUCTOS_API_URL=${PRODUCTOS_API_URL}
+      - INVENTARIO_API_URL=${INVENTARIO_API_URL}
+    volumes:
+      - ./secrets/jwt_public.pem:/run/secrets/jwt_public.pem:ro
+    networks:
+      - red-tienda
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api-envios:
+    build: ./api-envios
+    container_name: tienda-envios
+    restart: unless-stopped
+    ports:
+      - "8003:8003"
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - ENVIOS_DB_NAME=${ENVIOS_DB_NAME}
+      - ENVIOS_DB_USER=${ENVIOS_DB_USER}
+      - ENVIOS_DB_PASSWORD=${ENVIOS_DB_PASSWORD}
+      - INTERNAL_API_TOKEN=${INTERNAL_API_TOKEN}
+      - PEDIDOS_API_URL=${PEDIDOS_API_URL}
+    volumes:
+      - ./secrets/jwt_public.pem:/run/secrets/jwt_public.pem:ro
+    networks:
+      - red-tienda
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api-pagos:
+    build: ./api-pagos
+    container_name: tienda-pagos
+    restart: unless-stopped
+    ports:
+      - "8007:8007"
+    environment:
+      - PAGOS_DB_NAME=${PAGOS_DB_NAME}
+      - PAGOS_DB_USER=${PAGOS_DB_USER}
+      - PAGOS_DB_PASSWORD=${PAGOS_DB_PASSWORD}
+      - INTERNAL_API_TOKEN=${INTERNAL_API_TOKEN}
+      - PEDIDOS_API_URL=${PEDIDOS_API_URL}
+    networks:
+      - red-tienda
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 networks:
   red-tienda:
     name: red-tienda
