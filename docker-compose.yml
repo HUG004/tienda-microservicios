@@ -27,6 +27,9 @@ services:
       JWT_PRIVATE_KEY_PATH: /run/secrets/jwt_private.pem
       JWT_PUBLIC_KEY_PATH: /run/secrets/jwt_public.pem
 
+    group_add:
+      - "989"  
+      
     volumes:
       - ./secrets/jwt_private.pem:/run/secrets/jwt_private.pem:ro
       - ./secrets/jwt_public.pem:/run/secrets/jwt_public.pem:ro
@@ -105,6 +108,51 @@ services:
       timeout: 5s
       retries: 5
       start_period: 15s
+  
+  api-productos:
+    build:
+      context: ./api-productos
+      dockerfile: Dockerfile
+
+    image: tienda/api-productos:1.0.0
+    container_name: tienda-api-productos
+    restart: unless-stopped
+
+    ports:
+      - "127.0.0.1:8002:8002"
+
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: ${PRODUCTOS_DB_NAME}
+      DB_USER: ${PRODUCTOS_DB_USER}
+      DB_PASSWORD: ${PRODUCTOS_DB_PASSWORD}
+
+      JWT_ISSUER: ${JWT_ISSUER}
+      JWT_AUDIENCE: ${JWT_AUDIENCE}
+      JWT_PUBLIC_KEY_PATH: /run/secrets/jwt_public.pem
+
+    volumes:
+      - ./secrets/jwt_public.pem:/run/secrets/jwt_public.pem:ro
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    networks:
+      - red-tienda
+
+    healthcheck:
+      test:
+        - CMD
+        - php
+        - -r
+        - "exit(@file_get_contents('http://127.0.0.1:8002/ready') === false ? 1 : 0);"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
   api-inventario:
     build:
       context: ./api-inventario
