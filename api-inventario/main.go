@@ -1,15 +1,25 @@
 package main
 
 import (
-	"net"
+	"crypto/rsa"
+	"log"
 	"net/http"
 	"os"
 	"time"
 
-	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
 )
 
 const servicio = "api-inventario"
+
+type config struct {
+	puerto       string
+	jwtIssuer    string
+	jwtAudience  string
+	llavePublica *rsa.PublicKey
+	tokenInterno string
+	productosURL string
+}
 
 func getenv(clave, defecto string) string {
 	if v := os.Getenv(clave); v != "" {
@@ -18,23 +28,48 @@ func getenv(clave, defecto string) string {
 	return defecto
 }
 
+func requerida(clave string) string {
+	v := os.Getenv(clave)
+	if v == "" {
+		log.Fatalf("falta la variable de entorno %s", clave)
+	}
+	return v
+}
+
+func cargarConfig() config {
+	pem, err := os.ReadFile(requerida("JWT_PUBLIC_KEY_PATH"))
+	if err != nil {
+		log.Fatalf("no se pudo leer la clave publica JWT: %v", err)
+	}
+	llave, err := jwt.ParseRSAPublicKeyFromPEM(pem)
+	if err != nil {
+		log.Fatalf("clave publica JWT invalida: %v", err)
+	}
+	return config{
+		puerto:       getenv("PORT", "8004"),
+		jwtIssuer:    requerida("JWT_ISSUER"),
+		jwtAudience:  requerida("JWT_AUDIENCE"),
+		llavePublica: llave,
+		tokenInterno: requerida("INTERNAL_API_TOKEN"),
+		productosURL: requerida("PRODUCTOS_API_URL"),
+	}
+}
+
 func main() {
-	r := gin.Default()
+	cfg := cargarConfig()
+	pool, err := nuevoPool()
+	if err != nil {
+		log.Fatalf("configuracion de base de datos invalida: %v", err)
+	}
+	s := &servidor{cfg: cfg, db: pool, productos: nuevoClienteProductos(cfg.productosURL)}
+	s.iniciarMigracion()
+	s.iniciarExpiracion()
 
-	r.GET("/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok", "servicio": servicio})
-	})
-
-	r.GET("/ready", func(c *gin.Context) {
-		addr := net.JoinHostPort(getenv("DB_HOST", "postgres"), getenv("DB_PORT", "5432"))
-		conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
-		if err != nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready", "servicio": servicio})
-			return
-		}
-		conn.Close()
-		c.JSON(http.StatusOK, gin.H{"status": "ready", "servicio": servicio})
-	})
-
-	r.Run("0.0.0.0:" + getenv("PORT", "8004"))
+	srv := &http.Server{
+		Addr:              "0.0.0.0:" + cfg.puerto,
+		Handler:           s.router(),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+	log.Printf("%s escuchando en %s", servicio, srv.Addr)
+	log.Fatal(srv.ListenAndServe())
 }

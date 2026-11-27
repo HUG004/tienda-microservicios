@@ -105,7 +105,39 @@ services:
       timeout: 5s
       retries: 5
       start_period: 15s
-  
+  api-inventario:
+    build:
+      context: ./api-inventario
+      dockerfile: Dockerfile
+    image: tienda/api-inventario:1.0.0
+    container_name: tienda-api-inventario
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8004:8004"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: ${INVENTARIO_DB_NAME}
+      DB_USER: ${INVENTARIO_DB_USER}
+      DB_PASSWORD: ${INVENTARIO_DB_PASSWORD}
+      JWT_ISSUER: ${JWT_ISSUER}
+      JWT_AUDIENCE: ${JWT_AUDIENCE}
+      JWT_PUBLIC_KEY_PATH: /run/secrets/jwt_public.pem
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN}
+      PRODUCTOS_API_URL: ${PRODUCTOS_API_URL}
+    volumes:
+      - ./secrets/jwt_public.pem:/run/secrets/jwt_public.pem:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - red-tienda
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8004/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
   postgres:
     image: postgres:16
     container_name: tienda-postgres
