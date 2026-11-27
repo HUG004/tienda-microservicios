@@ -6,4 +6,5 @@ import java.util.Optional;
 public interface PagoRepository extends JpaRepository<Pago, Long> {
     Optional<Pago> findByPedidoIdAndEstado(Long pedidoId, String estado);
     Optional<Pago> findTopByPedidoIdOrderByCreadoEnDesc(Long pedidoId);
+    Optional<Pago> findByClaveIdempotencia(String claveIdempotencia);
 }
