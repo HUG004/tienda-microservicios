@@ -208,6 +208,67 @@ try {
 
     desactivarFallo();
 
+    // PRUEBAS ADICIONALES:
+    // Cancelacion segura antes de solicitar el pago.
+
+    $admin = [
+        'id' => 3,
+        'rol' => 'admin'
+    ];
+
+    probar(
+        'Cancelar pedido con reserva expirada',
+        fn() => $pedidos->cambiarEstado(
+            $id,
+            'cancelado',
+            $admin
+        )['estado'] === 'cancelado'
+    );
+
+    probar(
+        'Verificar persistencia de la cancelacion',
+        fn() => $pedidos->obtenerPorId(
+            $id,
+            $cliente
+        )['estado'] === 'cancelado'
+    );
+
+    probar(
+        'Repetir cancelacion sin errores',
+        fn() => $pedidos->cambiarEstado(
+            $id,
+            'cancelado',
+            $admin
+        )['estado'] === 'cancelado'
+    );
+
+    limpiarRegistro();
+
+    probarError(
+        'Impedir checkout de pedido cancelado',
+        409,
+        fn() => (new CheckoutService())->procesar(
+            $id,
+            $cliente,
+            $datosCheckout,
+            $clave
+        )
+    );
+
+    probar(
+        'No proteger reserva de pedido cancelado',
+        fn() => contarLlamadas(
+            'POST /api/inventario/proteger-reserva'
+        ) === 0
+    );
+
+    probar(
+        'No solicitar pago de pedido cancelado',
+        fn() => contarLlamadas(
+            'POST /api/pagos/procesar'
+        ) === 0
+    );
+
     // ESCENARIO 2: API Pagos no disponible.
 
     $pedido = $pedidos->crear(
@@ -253,6 +314,31 @@ try {
 
     probar(
         'Pedido pendiente tras fallo de pagos',
+        fn() => $pedidos->obtenerPorId(
+            $id,
+            $cliente
+        )['estado'] === 'pendiente'
+    );
+
+    probarError(
+        'Impedir cancelacion con pago en proceso',
+        409,
+        fn() => $pedidos->cambiarEstado(
+            $id,
+            'cancelado',
+            $admin
+        )
+    );
+
+    probar(
+        'No liberar inventario con pago desconocido',
+        fn() => contarLlamadas(
+            'POST /api/inventario/liberar'
+        ) === 0
+    );
+
+    probar(
+        'Conservar pedido pendiente tras cancelar indebidamente',
         fn() => $pedidos->obtenerPorId(
             $id,
             $cliente
@@ -443,6 +529,149 @@ try {
             );
         }
     }
+
+
+    // ESCENARIO 6:
+    // Recuperar un checkout rechazado cuyo pedido
+    // fue cancelado antes de completar la operacion.
+
+    $pedido = $pedidos->crear(
+        $cliente,
+        $datosPedido
+    );
+
+    $id = $pedido['id'];
+
+    $clave = 'checkout-'
+        . bin2hex(random_bytes(16));
+
+    $datosRechazo = [
+        'metodo_pago' => 'tarjeta_simulada',
+        'simulacion' => 'rechazar'
+    ];
+
+    limpiarRegistro();
+
+    $resultado = (new CheckoutService())->procesar(
+        $id,
+        $cliente,
+        $datosRechazo,
+        $clave
+    );
+
+    probar(
+        'Pago rechazado correctamente',
+        fn() => $resultado['pago']['estado']
+            === 'rechazado'
+    );
+
+    probar(
+        'Pedido rechazado cancelado',
+        fn() => $resultado['estado']
+            === 'cancelado'
+    );
+
+    $referencia = $resultado['pago']['referencia'];
+
+    // Simular una interrupcion antes de marcar
+    // el checkout como completado.
+
+    $stmt = $pdo->prepare("
+        UPDATE checkout_operaciones
+        SET estado = 'pago_rechazado',
+            completado_en = NULL,
+            ultimo_error = 'Fallo simulado'
+        WHERE pedido_id = :pedido_id
+    ");
+
+    $stmt->execute([
+        'pedido_id' => $id
+    ]);
+
+    $operacion = $operaciones->buscarPorPedido($id);
+
+    probar(
+        'Checkout rechazado incompleto simulado',
+        fn() => $operacion['estado']
+            === 'pago_rechazado'
+            && $operacion['pago_estado']
+            === 'rechazado'
+    );
+
+    probar(
+        'Inventario previamente liberado',
+        fn() => $operacion['inventario_liberado']
+            === true
+    );
+
+    limpiarRegistro();
+
+    $recuperado = (new CheckoutService())->procesar(
+        $id,
+        $cliente,
+        $datosRechazo,
+        $clave
+    );
+
+    probar(
+        'Recuperacion del pedido cancelado',
+        fn() => $recuperado['estado']
+            === 'cancelado'
+    );
+
+    probar(
+        'Se conserva el rechazo original',
+        fn() => $recuperado['pago']['estado']
+            === 'rechazado'
+    );
+
+    probar(
+        'Se conserva la referencia original',
+        fn() => $recuperado['pago']['referencia']
+            === $referencia
+    );
+
+    probar(
+        'No se procesa nuevamente el pago',
+        fn() => contarLlamadas(
+            'POST /api/pagos/procesar'
+        ) === 0
+    );
+
+    probar(
+        'No se libera nuevamente el inventario',
+        fn() => contarLlamadas(
+            'POST /api/inventario/liberar'
+        ) === 0
+    );
+
+    probar(
+        'No se genera un envio',
+        fn() => contarLlamadas(
+            'POST /api/envios/generar'
+        ) === 0
+    );
+
+    probar(
+        'Se conserva el carrito',
+        fn() => contarLlamadas(
+            'DELETE /api/carrito/1/vaciar'
+        ) === 0
+    );
+
+    probar(
+        'Checkout rechazado completado',
+        fn() => $operaciones
+            ->buscarPorPedido($id)['estado']
+                === 'completado'
+    );
+
+    probar(
+        'Error de recuperacion eliminado',
+        fn() => $operaciones
+            ->buscarPorPedido($id)['ultimo_error']
+                === null
+    );
 
 } catch (Throwable $exception) {
     echo "[ERROR GENERAL] "

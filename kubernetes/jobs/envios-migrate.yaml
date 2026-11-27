@@ -1,0 +1,65 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: envios-migrate
+  namespace: tienda
+  labels:
+    app: envios-migrate
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 300
+  template:
+    metadata:
+      labels:
+        app: envios-migrate
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      containers:
+        - name: migrate
+          image: postgres:16
+          imagePullPolicy: IfNotPresent
+          command:
+            - psql
+          args:
+            - "-X"
+            - "-v"
+            - "ON_ERROR_STOP=1"
+            - "--single-transaction"
+            - "-f"
+            - "/migrations/init.sql"
+          env:
+            - name: PGHOST
+              value: postgres
+            - name: PGPORT
+              value: "5432"
+            - name: PGDATABASE
+              valueFrom:
+                configMapKeyRef:
+                  name: tienda-database-config
+                  key: ENVIOS_DB_NAME
+            - name: PGUSER
+              valueFrom:
+                configMapKeyRef:
+                  name: tienda-database-config
+                  key: ENVIOS_DB_USER
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: envios-db-secret
+                  key: DB_PASSWORD
+          volumeMounts:
+            - name: migrations
+              mountPath: /migrations
+              readOnly: true
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "32Mi"
+            limits:
+              cpu: "250m"
+              memory: "128Mi"
+      volumes:
+        - name: migrations
+          configMap:
+            name: envios-migration-sql

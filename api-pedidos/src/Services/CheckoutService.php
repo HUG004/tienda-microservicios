@@ -111,6 +111,23 @@ final class CheckoutService
             $existente = $this->operaciones
                 ->buscarPorPedido($pedidoId);
 
+            // Un pedido cancelado administrativamente
+            // no puede iniciar ni reanudar un pago.
+            //
+            // Si existe un rechazo registrado, permitir
+            // recuperar y finalizar su compensacion.
+
+            if (
+                $pedido['estado'] === 'cancelado'
+                && ($existente['pago_estado'] ?? null) !== 'rechazado'
+            ) {
+                throw new ApiException(
+                    409,
+                    'PEDIDO_NO_PROCESABLE',
+                    'El pedido fue cancelado'
+                );
+            }
+
             if (
                 $existente === null
                 && $pedido['estado'] !== 'pendiente'

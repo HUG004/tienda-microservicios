@@ -395,12 +395,22 @@ final class PedidoService
                 $operacion = $this->operaciones
                     ->buscarPorPedido($pedidoId);
 
+                // Solo permitir la cancelacion de un checkout
+                // que todavia no ha solicitado el pago.
+
                 if ($operacion !== null) {
-                    throw new ApiException(
-                        409,
-                        'CHECKOUT_EXISTENTE',
-                        'El pedido tiene un checkout en proceso'
-                    );
+                    $cancelacionSegura =
+                        $operacion['estado'] === 'iniciado'
+                        && $operacion['pago_estado'] === null
+                        && $operacion['pago_id'] === null;
+
+                    if (!$cancelacionSegura) {
+                        throw new ApiException(
+                            409,
+                            'CHECKOUT_EXISTENTE',
+                            'El pedido tiene un checkout en proceso'
+                        );
+                    }
                 }
 
                 // Liberar inventario antes de cancelar.

@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tienda-app-config
+  namespace: tienda
+  labels:
+    app: tienda-microservicios
+data:
+  APP_ENV: "development"
+
+  JWT_ISSUER: "api-usuarios"
+  JWT_AUDIENCE: "tienda-microservicios"
+  JWT_TTL_SECONDS: "3600"
+
+  JWT_PUBLIC_KEY_PATH: "/run/secrets/jwt_public.pem"
+  JWT_PRIVATE_KEY_PATH: "/run/secrets/jwt_private.pem"
+
+  USUARIOS_API_URL: "http://api-usuarios:8001"
+  PRODUCTOS_API_URL: "http://api-productos:8002"
+  ENVIOS_API_URL: "http://api-envios:8003"
+  INVENTARIO_API_URL: "http://api-inventario:8004"
+  CARRITO_API_URL: "http://api-carrito:8005"
+  PEDIDOS_API_URL: "http://api-pedidos:8006"
+  PAGOS_API_URL: "http://api-pagos:8007"
+  RESENAS_API_URL: "http://api-resenas:8008"
