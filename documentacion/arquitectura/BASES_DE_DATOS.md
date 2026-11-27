@@ -203,3 +203,87 @@ mediante un índice compuesto único.
 - Las credenciales serán independientes por servicio.
 - Cada integrante implementará las tablas y restricciones
   correspondientes a sus microservicios.
+
+  ## 11. Ampliación para integración distribuida
+
+### 11.1. Tabla pagos
+
+Agregar los siguientes campos:
+
+- clave_idempotencia: VARCHAR(100), UNIQUE, NOT NULL.
+- solicitud_hash: VARCHAR(64), NOT NULL.
+
+Crear un índice único parcial sobre pedido_id
+cuando estado sea aprobado.
+
+Esto impedirá que un mismo pedido tenga
+dos pagos aprobados.
+
+### 11.2. Base de datos pedidos_db
+
+Agregar la tabla checkout_operaciones:
+
+- id: BIGINT, PK, identidad.
+- pedido_id: BIGINT, FK pedidos, UNIQUE.
+- clave_idempotencia: VARCHAR(100), UNIQUE.
+- solicitud_hash: VARCHAR(64), NOT NULL.
+- estado: VARCHAR(40), NOT NULL.
+- pago_id: BIGINT, NULL.
+- pago_estado: VARCHAR(20), NULL.
+- pago_referencia: VARCHAR(100), NULL.
+- inventario_confirmado: BOOLEAN, DEFAULT FALSE.
+- inventario_liberado: BOOLEAN, DEFAULT FALSE.
+- envio_generado: BOOLEAN, DEFAULT FALSE.
+- carrito_vaciado: BOOLEAN, DEFAULT FALSE.
+- ultimo_error: TEXT, NULL.
+- intentos: INTEGER, DEFAULT 0.
+- creado_en: TIMESTAMPTZ.
+- actualizado_en: TIMESTAMPTZ.
+- completado_en: TIMESTAMPTZ, NULL.
+
+La tabla permitirá conservar el progreso
+de las compras y recuperar operaciones
+interrumpidas.
+
+### 11.3. Tabla reservas
+
+Agregar el estado:
+
+procesando_pago
+
+Estados actualizados:
+
+- pendiente
+- procesando_pago
+- confirmada
+- liberada
+- expirada
+
+Las reservas en estado procesando_pago
+no se liberarán automáticamente por expiración.
+
+El coordinador deberá comprobar el resultado
+del pago antes de confirmar o liberar
+estas reservas.
+
+### 11.4. Concurrencia
+
+Las operaciones de inventario deberán utilizar
+transacciones y bloqueo de filas.
+
+Pedidos deberá utilizar un mecanismo persistente
+para impedir ejecuciones concurrentes del checkout.
+
+No se mantendrán transacciones abiertas mientras
+se realizan solicitudes HTTP a otros servicios.
+
+### 11.5. Recuperación
+
+Los procesos de recuperación deberán consultar
+el estado persistido de las operaciones.
+
+No se utilizará únicamente memoria local
+para controlar compras en proceso.
+
+Esto permitirá recuperar operaciones después
+del reinicio de un contenedor o Pod.

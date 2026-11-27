@@ -1890,3 +1890,85 @@ de arquitectura y comunicados a los integrantes.
 La aplicación es una implementación académica.
 No representa una plataforma de comercio electrónico
 preparada para procesar pagos reales en producción.
+
+
+# 18. Ampliación del contrato de Inventario
+
+## 18.1. Iniciar procesamiento de pago
+
+POST /api/inventario/proteger-reserva
+
+Acceso: interno.
+
+Solicitud:
+
+{
+  "pedido_id": 1
+}
+
+Respuesta HTTP 200:
+
+{
+  "mensaje": "Reserva protegida correctamente",
+  "datos": {
+    "pedido_id": 1,
+    "estado": "procesando_pago"
+  }
+}
+
+Reglas:
+
+- Comprobar que todas las reservas del pedido existan.
+- Comprobar que las reservas pendientes no hayan expirado.
+- Cambiar su estado a procesando_pago.
+- Ejecutar la operación dentro de una transacción.
+- No modificar stock_total ni stock_reservado.
+- Si ya se encuentra en procesando_pago,
+  devolver HTTP 200 sin repetir efectos.
+- No permitir la operación sobre reservas liberadas,
+  confirmadas o expiradas.
+
+Errores:
+
+- 404 RESERVA_NO_ENCONTRADA
+- 409 RESERVA_EXPIRADA
+- 409 RESERVA_NO_PROTEGIBLE
+
+Pedidos deberá llamar a este endpoint antes de
+solicitar el procesamiento del pago.
+
+## 18.2. Actualización de confirmar y liberar
+
+POST /api/inventario/confirmar
+
+Permitirá confirmar reservas pendientes vigentes
+o reservas en estado procesando_pago.
+
+POST /api/inventario/liberar
+
+Permitirá liberar reservas pendientes o reservas
+en estado procesando_pago cuando el coordinador
+haya comprobado que no existe un pago aprobado.
+
+## 18.3. Actualización del checkout
+
+POST /api/pedidos/{id}/checkout
+
+Antes de solicitar el pago, Pedidos deberá
+proteger la reserva mediante el nuevo endpoint.
+
+Cuando se repita una clave de idempotencia,
+se recuperará el progreso existente.
+
+No se iniciará un segundo checkout para
+un pedido que ya tenga uno registrado.
+
+Si se reutiliza una clave con datos diferentes,
+se devolverá HTTP 409.
+
+Si una operación está incompleta por un fallo
+temporal, se devolverá HTTP 503 y el cliente
+podrá reintentar con la misma clave.
+
+Las operaciones completadas devolverán
+su resultado previamente registrado.
