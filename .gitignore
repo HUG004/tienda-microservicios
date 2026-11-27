@@ -51,3 +51,8 @@ Thumbs.db
 
 # Datos locales de Docker
 docker-data/
+
+# Claves criptograficas y secretos locales
+/secrets/
+*.pem
+*.key
