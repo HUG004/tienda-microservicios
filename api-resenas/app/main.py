@@ -2,6 +2,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from app.database import client, db
+from app.errores import registrar_manejadores
+from app.resenas import router
 
 SERVICIO = "api-resenas"
 
@@ -20,6 +22,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title=SERVICIO, lifespan=lifespan)
+registrar_manejadores(app)
+app.include_router(router)
 
 
 @app.get("/health")
